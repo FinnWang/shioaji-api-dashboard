@@ -42,6 +42,7 @@ from trading_queue import (
 from trading import (
     SUPPORTED_FUTURES,
     get_valid_symbols,
+    get_valid_symbols_with_info,
     get_valid_contract_codes,
     get_contract_from_symbol,
     get_current_position,
@@ -355,11 +356,11 @@ class TradingWorker:
                 )
 
             elif operation == TradingOperation.GET_SYMBOLS.value:
-                symbols = get_valid_symbols(api)
+                symbols_info = get_valid_symbols_with_info(api)
                 return TradingResponse(
                     request_id=request.request_id,
                     success=True,
-                    data={"symbols": symbols, "count": len(symbols)},
+                    data={"symbols": symbols_info, "count": len(symbols_info)},
                 )
 
             elif operation == TradingOperation.GET_SYMBOL_INFO.value:

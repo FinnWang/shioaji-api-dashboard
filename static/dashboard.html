@@ -893,7 +893,10 @@
         <div id="symbols-tab" class="tab-content">
             <div class="info-card">
                 <h2>📜 可用交易商品</h2>
-                <p style="color: #a1a1aa; margin-top: 0.5rem;">以下為目前可交易的期貨商品代碼，可直接用於 TradingView 警報設定。</p>
+                <p style="color: #a1a1aa; margin-top: 0.5rem;">以下為目前可交易的期貨商品。<strong style="color: #00d9ff;">請使用 Symbol 欄位</strong>設定 TradingView 警報。</p>
+                <div class="alert alert-info" style="margin-top: 1rem;">
+                    💡 <strong>Symbol</strong> (如 MXF202601) 是 Shioaji API 使用的格式；<strong>Code</strong> (如 MXFA6) 是交易所代碼，僅供參考。
+                </div>
             </div>
             
             <div class="filters">
@@ -1022,7 +1025,7 @@ if (strategy.position_size < 0)
                     </div>
                     <div class="field-item">
                         <span class="field-name">symbol</span>
-                        <span class="field-desc">商品代碼（如 MXFR1、TXFR1）</span>
+                        <span class="field-desc">商品代碼（如 <code>MXFR1</code>、<code>MXF202601</code>）— 請使用「可用商品」頁面的 Symbol 欄位值</span>
                         <span class="badge badge-required">必填</span>
                     </div>
                 </div>
@@ -1291,7 +1294,7 @@ if (strategy.position_size < 0)
                 document.getElementById('ordersTable').innerHTML = '<div class="empty">無委託紀錄</div>';
                 return;
             }
-            let html = `<table><thead><tr><th>ID</th><th>商品</th><th>動作</th><th>委託口數</th><th>成交狀態</th><th>成交/價格</th><th>錯誤訊息</th><th>時間</th><th>操作</th></tr></thead><tbody>`;
+            let html = `<table><thead><tr><th>ID</th><th>Symbol</th><th>動作</th><th>委託口數</th><th>成交狀態</th><th>成交/價格</th><th>錯誤訊息</th><th>時間</th><th>操作</th></tr></thead><tbody>`;
             for (const order of orders) {
                 const date = new Date(order.created_at).toLocaleString('zh-TW');
                 const fillStatus = order.fill_status ? (fillStatusLabels[order.fill_status] || order.fill_status) : '-';
@@ -1307,7 +1310,7 @@ if (strategy.position_size < 0)
                     : `<span style="color:#71717a;font-size:0.75rem">-</span>`;
                 html += `<tr id="order-row-${order.id}">
                     <td>${order.id}</td>
-                    <td><strong>${order.symbol}</strong></td>
+                    <td><strong style="color: #00d9ff; font-family: 'Consolas', monospace;">${order.symbol}</strong></td>
                     <td><span class="action action-${order.action}">${actionLabels[order.action] || order.action}</span></td>
                     <td>${order.quantity}</td>
                     <td><span class="status ${statusClass}">${statusLabels[order.status] || order.status}</span><br><small style="color:#a1a1aa">${fillStatus}</small></td>
@@ -1376,11 +1379,19 @@ if (strategy.position_size < 0)
                 document.getElementById('positionsTable').innerHTML = '<div class="empty">目前無持倉</div>';
                 return;
             }
-            let html = `<table><thead><tr><th>商品</th><th>方向</th><th>口數</th><th>均價</th><th>現價</th><th>損益</th></tr></thead><tbody>`;
+            let html = `<table><thead><tr><th>Symbol</th><th>Code</th><th>方向</th><th>口數</th><th>均價</th><th>現價</th><th>損益</th></tr></thead><tbody>`;
             for (const pos of positions) {
                 const pnlClass = pos.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
                 const dirClass = pos.direction.toLowerCase() === 'buy' ? 'direction-buy' : 'direction-sell';
-                html += `<tr><td><strong>${pos.symbol}</strong></td><td><span class="direction ${dirClass}">${dirLabels[pos.direction] || pos.direction}</span></td><td>${pos.quantity}</td><td>${pos.price.toLocaleString()}</td><td>${pos.last_price.toLocaleString()}</td><td class="${pnlClass}">${pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString()}</td></tr>`;
+                html += `<tr>
+                    <td><strong style="color: #00d9ff; font-family: 'Consolas', monospace;">${pos.symbol}</strong></td>
+                    <td style="color: #a1a1aa; font-family: 'Consolas', monospace;">${pos.code || '-'}</td>
+                    <td><span class="direction ${dirClass}">${dirLabels[pos.direction] || pos.direction}</span></td>
+                    <td>${pos.quantity}</td>
+                    <td>${pos.price.toLocaleString()}</td>
+                    <td>${pos.last_price.toLocaleString()}</td>
+                    <td class="${pnlClass}">${pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString()}</td>
+                </tr>`;
             }
             html += '</tbody></table>';
             document.getElementById('positionsTable').innerHTML = html;
@@ -1420,7 +1431,11 @@ if (strategy.position_size < 0)
         
         function filterSymbols() {
             const search = document.getElementById('symbolSearch').value.toLowerCase();
-            const filtered = symbols.filter(s => s.toLowerCase().includes(search));
+            const filtered = symbols.filter(s => 
+                s.symbol.toLowerCase().includes(search) || 
+                s.code.toLowerCase().includes(search) ||
+                s.name.toLowerCase().includes(search)
+            );
             renderSymbolsTable(filtered);
         }
         
@@ -1430,26 +1445,41 @@ if (strategy.position_size < 0)
                 return;
             }
             
-            let html = '<div class="symbol-grid">';
-            for (const symbol of list) {
-                html += `<div class="symbol-card" onclick="copySymbol('${symbol}')">
-                    <span class="symbol-name">${symbol}</span>
-                    <span class="symbol-copy-hint">點擊複製</span>
-                </div>`;
+            let html = `<table>
+                <thead>
+                    <tr>
+                        <th>Symbol (用於下單)</th>
+                        <th>Code (交易所代碼)</th>
+                        <th>名稱</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+            for (const item of list) {
+                html += `<tr>
+                    <td><strong style="color: #00d9ff; font-family: 'Consolas', monospace;">${item.symbol}</strong></td>
+                    <td style="color: #a1a1aa; font-family: 'Consolas', monospace;">${item.code}</td>
+                    <td>${item.name}</td>
+                    <td><button class="recheck-btn" onclick="copySymbol('${item.symbol}')">📋 複製 Symbol</button></td>
+                </tr>`;
             }
-            html += '</div>';
+            html += '</tbody></table>';
             document.getElementById('symbolsTable').innerHTML = html;
         }
         
         function copySymbol(symbol) {
             navigator.clipboard.writeText(symbol).then(() => {
-                const cards = document.querySelectorAll('.symbol-card');
-                cards.forEach(card => {
-                    if (card.querySelector('.symbol-name').textContent === symbol) {
-                        card.classList.add('copied');
-                        setTimeout(() => card.classList.remove('copied'), 1500);
-                    }
-                });
+                // Show a brief notification
+                const btn = event.target;
+                const original = btn.textContent;
+                btn.textContent = '✓ 已複製';
+                btn.style.background = 'rgba(0, 255, 136, 0.3)';
+                btn.style.borderColor = '#00ff88';
+                setTimeout(() => {
+                    btn.textContent = original;
+                    btn.style.background = '';
+                    btn.style.borderColor = '';
+                }, 1500);
             });
         }
         

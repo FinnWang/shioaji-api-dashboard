@@ -113,28 +113,34 @@ def get_valid_symbols(api: sj.Shioaji) -> List[str]:
     return [contract.symbol for contract in _get_futures_contracts(api)]
 
 
+def get_valid_symbols_with_info(api: sj.Shioaji) -> List[dict]:
+    """
+    Get all valid trading symbols with their codes from supported futures.
+    
+    Returns list of dicts with:
+    - symbol: MXF202601 (YYYYMM format) - use this for trading
+    - code: MXFA6 (month letter + year digit format)
+    - name: Contract name (e.g., 小型臺指01)
+    """
+    return [
+        {
+            "symbol": contract.symbol,
+            "code": contract.code,
+            "name": contract.name,
+        }
+        for contract in _get_futures_contracts(api)
+    ]
+
+
 def get_valid_contract_codes(api: sj.Shioaji) -> List[str]:
     """Get all valid contract codes from supported futures."""
     return [contract.code for contract in _get_futures_contracts(api)]
 
 
 def get_contract_from_symbol(api: sj.Shioaji, symbol: str) -> Contract:
-    """
-    Find a contract by its symbol or code.
-    
-    Shioaji uses two identifiers:
-    - symbol: MXF202601 (YYYYMM format)
-    - code: MXFA6 (month letter + year digit format)
-    
-    This function tries to match both for flexibility.
-    """
+    """Find a contract by its symbol."""
     for contract in _get_futures_contracts(api):
         if contract.symbol == symbol:
-            return contract
-    # Also try matching by code (e.g., MXFA6 vs MXF202601)
-    for contract in _get_futures_contracts(api):
-        if contract.code == symbol:
-            logger.info(f"Matched by code: {symbol} -> symbol={contract.symbol}")
             return contract
     raise ValueError(f"Contract {symbol} not found in supported futures: {SUPPORTED_FUTURES}")
 
