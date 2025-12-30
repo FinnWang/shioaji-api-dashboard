@@ -16,6 +16,7 @@ import logging
 import os
 import signal
 import sys
+import threading
 import time
 from typing import Optional, Dict, Any
 
@@ -58,11 +59,18 @@ logger = logging.getLogger(__name__)
 RECONNECT_DELAY = 5  # seconds between reconnection attempts
 MAX_RECONNECT_ATTEMPTS = 10
 QUEUE_POLL_TIMEOUT = 5  # seconds to wait for queue items
+HEALTH_CHECK_INTERVAL = 300  # 5 minutes - check connection health periodically
+CONNECTION_LOGOUT_TIMEOUT = 3  # seconds to wait for logout before giving up
 
 
 class TradingWorker:
     """
     Worker that maintains Shioaji connections and processes trading requests.
+    
+    Features:
+    - Automatic reconnection on connection loss or token expiration
+    - Graceful handling of SDK session disconnects
+    - Periodic health checks to detect stale connections
     """
 
     def __init__(self):
@@ -73,6 +81,19 @@ class TradingWorker:
             False: None,  # real trading
         }
         self.pending_trades: Dict[str, Any] = {}  # Store trades for status checking
+        
+        # Track connection health
+        self._last_successful_request: Dict[bool, float] = {
+            True: 0.0,
+            False: 0.0,
+        }
+        self._connection_lock = threading.Lock()
+        
+        # Track if connections are being invalidated (to avoid concurrent cleanup)
+        self._invalidating: Dict[bool, bool] = {
+            True: False,
+            False: False,
+        }
 
         # Register signal handlers for graceful shutdown
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -82,6 +103,42 @@ class TradingWorker:
         """Handle shutdown signals gracefully."""
         logger.info(f"Received signal {signum}, initiating shutdown...")
         self.running = False
+
+    def _setup_event_callbacks(self, api: sj.Shioaji, simulation: bool):
+        """
+        Set up event callbacks for SDK session events.
+        
+        This helps detect session disconnections and reconnections at the SDK level.
+        """
+        mode_str = "simulation" if simulation else "real"
+        
+        try:
+            @api.quote.on_event
+            def event_callback(resp_code: int, event_code: int, info: str, event: str):
+                """Handle SDK session events."""
+                # Event codes:
+                # 0 = Session up
+                # 12 = Session reconnecting  
+                # 13 = Session reconnected
+                # 16 = Subscribe/Unsubscribe ok
+                
+                if event_code == 0:
+                    logger.info(f"[{mode_str}] SDK session established")
+                elif event_code == 12:
+                    logger.warning(f"[{mode_str}] SDK session disconnected, reconnecting...")
+                elif event_code == 13:
+                    logger.info(f"[{mode_str}] SDK session reconnected")
+                    # After SDK reconnection, we should verify the token is still valid
+                    # This will be checked on the next request
+                elif event_code == 16:
+                    logger.debug(f"[{mode_str}] Subscribe/Unsubscribe operation completed")
+                else:
+                    logger.debug(f"[{mode_str}] SDK event: code={event_code}, event={event}, info={info}")
+                    
+            logger.debug(f"Event callbacks set up for {mode_str} connection")
+        except Exception as e:
+            # Event callbacks are optional - don't fail if they can't be set up
+            logger.debug(f"Could not set up event callbacks: {e}")
 
     def _get_api_client(self, simulation: bool) -> sj.Shioaji:
         """
@@ -106,11 +163,16 @@ class TradingWorker:
                 api.login(api_key=api_key, secret_key=secret_key)
                 logger.info(f"Successfully logged in to Shioaji ({mode_str} mode)")
 
+                # Set up event callbacks for session monitoring
+                self._setup_event_callbacks(api, simulation)
+                
                 # Activate CA for real trading
                 if not simulation:
                     self._activate_ca(api)
 
                 self.api_clients[simulation] = api
+                # Record successful connection time
+                self._last_successful_request[simulation] = time.time()
                 return api
 
             except (TokenError, SystemMaintenance, SjTimeoutError) as e:
@@ -155,16 +217,124 @@ class TradingWorker:
         logger.info(f"CA activation result: {result}")
 
     def _invalidate_connection(self, simulation: bool):
-        """Invalidate a connection (e.g., after error) to force reconnection."""
+        """
+        Invalidate a connection (e.g., after error) to force reconnection.
+        
+        This method handles the case where the connection is already dead
+        and logout might timeout or fail.
+        """
         mode_str = "simulation" if simulation else "real"
-        logger.warning(f"Invalidating {mode_str} connection...")
-
-        if self.api_clients[simulation] is not None:
-            try:
-                self.api_clients[simulation].logout()
-            except Exception as e:
-                logger.debug(f"Error during logout: {e}")
+        
+        # Prevent concurrent invalidation
+        if self._invalidating[simulation]:
+            logger.debug(f"Already invalidating {mode_str} connection, skipping...")
+            return
+            
+        with self._connection_lock:
+            if self.api_clients[simulation] is None:
+                logger.debug(f"No {mode_str} connection to invalidate")
+                return
+                
+            self._invalidating[simulation] = True
+            logger.warning(f"Invalidating {mode_str} connection...")
+            
+            # Get reference to old client and immediately clear our reference
+            # This prevents the garbage collector from trying to logout later
+            old_api = self.api_clients[simulation]
             self.api_clients[simulation] = None
+            
+            # Try to logout gracefully, but don't block for too long
+            try:
+                # Use a thread to attempt logout with timeout
+                logout_done = threading.Event()
+                logout_error = [None]
+                
+                def do_logout():
+                    try:
+                        old_api.logout()
+                    except Exception as e:
+                        logout_error[0] = e
+                    finally:
+                        logout_done.set()
+                
+                logout_thread = threading.Thread(target=do_logout, daemon=True)
+                logout_thread.start()
+                
+                # Wait for logout with timeout
+                if logout_done.wait(timeout=CONNECTION_LOGOUT_TIMEOUT):
+                    if logout_error[0]:
+                        logger.debug(f"Logout completed with error: {logout_error[0]}")
+                    else:
+                        logger.debug(f"Logout completed successfully")
+                else:
+                    logger.warning(
+                        f"Logout timed out after {CONNECTION_LOGOUT_TIMEOUT}s, "
+                        f"abandoning old {mode_str} connection"
+                    )
+                    # Don't wait for the thread - it's a daemon thread and will be
+                    # cleaned up when the process exits
+                    
+            except Exception as e:
+                logger.debug(f"Error during logout attempt: {e}")
+            finally:
+                self._invalidating[simulation] = False
+                logger.info(f"{mode_str.capitalize()} connection invalidated, will reconnect on next request")
+
+    def _check_connection_health(self, simulation: bool) -> bool:
+        """
+        Check if an existing connection is still healthy.
+        
+        This performs a lightweight check to verify the connection is still valid.
+        Returns True if healthy, False if the connection should be invalidated.
+        """
+        mode_str = "simulation" if simulation else "real"
+        api = self.api_clients.get(simulation)
+        
+        if api is None:
+            return False
+            
+        try:
+            # Try to list accounts - this is a lightweight API call that validates the token
+            accounts = api.list_accounts()
+            if accounts:
+                logger.debug(f"{mode_str.capitalize()} connection health check passed")
+                self._last_successful_request[simulation] = time.time()
+                return True
+            else:
+                logger.warning(f"{mode_str.capitalize()} connection health check: no accounts returned")
+                return False
+        except (TokenError, SystemMaintenance, SjTimeoutError) as e:
+            logger.warning(f"{mode_str.capitalize()} connection health check failed: {e}")
+            return False
+        except Exception as e:
+            error_str = str(e).lower()
+            if "token" in error_str or "expired" in error_str or "401" in error_str:
+                logger.warning(f"{mode_str.capitalize()} connection health check failed: {e}")
+                return False
+            # For other errors, assume connection might still be OK
+            logger.debug(f"{mode_str.capitalize()} connection health check had error: {e}")
+            return True
+
+    def _maybe_refresh_connection(self, simulation: bool):
+        """
+        Check if connection needs to be refreshed and invalidate if necessary.
+        
+        This is called periodically to proactively detect stale connections.
+        """
+        mode_str = "simulation" if simulation else "real"
+        
+        if self.api_clients.get(simulation) is None:
+            return  # No connection to refresh
+            
+        last_success = self._last_successful_request[simulation]
+        time_since_success = time.time() - last_success
+        
+        # If it's been a while since successful request, verify connection is still healthy
+        if time_since_success > HEALTH_CHECK_INTERVAL:
+            logger.info(f"Checking {mode_str} connection health (last success: {time_since_success:.0f}s ago)...")
+            if not self._check_connection_health(simulation):
+                logger.warning(f"{mode_str.capitalize()} connection appears stale, invalidating...")
+                self._invalidate_connection(simulation)
 
     def _handle_request(self, request: TradingRequest) -> TradingResponse:
         """Process a single trading request."""
@@ -308,16 +478,44 @@ class TradingWorker:
                     error=f"Unknown operation: {operation}",
                 )
 
-        except (TokenError, SystemMaintenance) as e:
-            logger.error(f"Connection error: {e}, invalidating connection...")
+        except (TokenError, SystemMaintenance, SjTimeoutError) as e:
+            # These errors indicate the connection is no longer valid
+            error_type = type(e).__name__
+            logger.error(f"Connection error ({error_type}): {e}, invalidating connection...")
             self._invalidate_connection(simulation)
             return TradingResponse(
                 request_id=request.request_id,
                 success=False,
-                error=f"Connection error: {e}",
+                error=f"Connection error ({error_type}): {e}",
             )
 
         except Exception as e:
+            error_str = str(e)
+            # Check for common connection-related error patterns in exception message
+            connection_error_patterns = [
+                "token is expired",
+                "token expired", 
+                "status_code': 401",
+                "statuscode: 401",
+                "not ready",
+                "session down",
+                "connection refused",
+                "connection reset",
+            ]
+            is_connection_error = any(
+                pattern in error_str.lower() 
+                for pattern in connection_error_patterns
+            )
+            
+            if is_connection_error:
+                logger.error(f"Detected connection error in exception: {e}, invalidating connection...")
+                self._invalidate_connection(simulation)
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error=f"Connection error: {e}",
+                )
+            
             logger.exception(f"Error processing request: {e}")
             return TradingResponse(
                 request_id=request.request_id,
@@ -529,13 +727,23 @@ class TradingWorker:
 
         logger.info(f"Listening for requests on queue: {REQUEST_QUEUE}")
 
+        last_health_check = time.time()
+        
         while self.running:
             try:
                 # Block waiting for request with timeout
                 result = self.redis.blpop(REQUEST_QUEUE, timeout=QUEUE_POLL_TIMEOUT)
 
                 if result is None:
-                    continue  # Timeout, check if still running
+                    # Timeout - good time to check connection health
+                    current_time = time.time()
+                    if current_time - last_health_check > HEALTH_CHECK_INTERVAL:
+                        logger.debug("Periodic health check during idle...")
+                        for sim_mode in [True, False]:
+                            if self.api_clients.get(sim_mode) is not None:
+                                self._maybe_refresh_connection(sim_mode)
+                        last_health_check = current_time
+                    continue
 
                 _, request_data = result
                 request = TradingRequest.from_json(request_data)
@@ -544,6 +752,10 @@ class TradingWorker:
 
                 # Process request
                 response = self._handle_request(request)
+                
+                # Track successful requests for health monitoring
+                if response.success:
+                    self._last_successful_request[request.simulation] = time.time()
 
                 # Send response
                 response_key = f"{RESPONSE_PREFIX}{request.request_id}"
@@ -563,16 +775,13 @@ class TradingWorker:
                 logger.exception(f"Error in main loop: {e}")
                 time.sleep(1)
 
-        # Cleanup
+        # Cleanup - use _invalidate_connection for proper cleanup with timeout handling
         logger.info("Shutting down trading worker...")
-        for simulation, api in self.api_clients.items():
-            if api is not None:
-                try:
-                    api.logout()
-                    mode = "simulation" if simulation else "real"
-                    logger.info(f"Logged out from Shioaji ({mode} mode)")
-                except Exception as e:
-                    logger.debug(f"Error during logout: {e}")
+        for simulation in [True, False]:
+            if self.api_clients.get(simulation) is not None:
+                mode = "simulation" if simulation else "real"
+                logger.info(f"Cleaning up {mode} connection...")
+                self._invalidate_connection(simulation)
 
         logger.info("Trading worker stopped")
 
