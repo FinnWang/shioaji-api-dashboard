@@ -349,6 +349,45 @@ docker compose exec redis redis-cli ping
 # 應回應 PONG
 ```
 
+### 資料庫重置（全新開始）
+
+如果需要清除所有資料，重新開始：
+
+```bash
+./db/reset.sh
+```
+
+**手動重置：**
+```bash
+# 停止所有服務
+docker compose down
+
+# 刪除資料 volumes（會清除所有訂單紀錄）
+docker volume rm shioaji-api-dashboard_postgres_data
+docker volume rm shioaji-api-dashboard_redis_data
+
+# 重新啟動（會自動建立資料表）
+docker compose up -d
+
+# 確認 migration 成功
+docker compose logs db-migrate
+```
+
+### 確認資料庫建立成功
+
+```bash
+# 查看 migration 日誌
+docker compose logs db-migrate
+
+# 預期看到類似以下訊息：
+# === Database Migration Runner ===
+# PostgreSQL is ready!
+# Running migrations...
+#   ✓ 000_schema_migrations (applied)
+#   ✓ 001_initial_schema (applied)
+# === Migration complete ===
+```
+
 ## 📚 參考資源
 
 - [Shioaji 官方文件](https://sinotrade.github.io/)
