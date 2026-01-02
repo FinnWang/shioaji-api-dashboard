@@ -62,6 +62,8 @@ MAX_RECONNECT_ATTEMPTS = 10
 QUEUE_POLL_TIMEOUT = 5  # seconds to wait for queue items
 HEALTH_CHECK_INTERVAL = 300  # 5 minutes - check connection health periodically
 CONNECTION_LOGOUT_TIMEOUT = 3  # seconds to wait for logout before giving up
+MAX_REQUEST_RETRIES = 3  # max retries for requests on connection errors
+REQUEST_RETRY_DELAY = 1  # seconds between request retries
 
 
 class TradingWorker:
@@ -338,12 +340,54 @@ class TradingWorker:
                 self._invalidate_connection(simulation)
 
     def _handle_request(self, request: TradingRequest) -> TradingResponse:
-        """Process a single trading request."""
+        """
+        Process a single trading request with automatic retry on connection errors.
+        
+        Retries up to MAX_REQUEST_RETRIES times when token expiration or 
+        connection errors are detected.
+        """
+        last_error = None
+        
+        for attempt in range(1, MAX_REQUEST_RETRIES + 1):
+            response = self._handle_request_inner(request, attempt)
+            
+            # Check if it's a connection error that should be retried
+            if not response.success and response.error:
+                error_lower = response.error.lower()
+                is_retryable = any(pattern in error_lower for pattern in [
+                    "token is expired",
+                    "token expired",
+                    "tokenerror",
+                    "connection error",
+                    "401",
+                    "session down",
+                    "not ready",
+                ])
+                
+                if is_retryable and attempt < MAX_REQUEST_RETRIES:
+                    logger.warning(
+                        f"Retryable error on attempt {attempt}/{MAX_REQUEST_RETRIES}: {response.error}"
+                    )
+                    last_error = response.error
+                    time.sleep(REQUEST_RETRY_DELAY)
+                    continue
+            
+            # Success or non-retryable error
+            if response.success and attempt > 1:
+                logger.info(f"Request succeeded after {attempt} attempts (recovered from: {last_error})")
+            return response
+        
+        # All retries exhausted
+        logger.error(f"Request failed after {MAX_REQUEST_RETRIES} attempts")
+        return response
+
+    def _handle_request_inner(self, request: TradingRequest, attempt: int = 1) -> TradingResponse:
+        """Inner request handler - processes a single attempt."""
         operation = request.operation
         simulation = request.simulation
         params = request.params
 
-        logger.debug(f"Processing request: {operation} (simulation={simulation})")
+        logger.debug(f"Processing request: {operation} (simulation={simulation}, attempt={attempt})")
 
         try:
             api = self._get_api_client(simulation)
@@ -497,7 +541,7 @@ class TradingWorker:
         except (TokenError, SystemMaintenance, SjTimeoutError) as e:
             # These errors indicate the connection is no longer valid
             error_type = type(e).__name__
-            logger.error(f"Connection error ({error_type}): {e}, invalidating connection...")
+            logger.error(f"[Attempt {attempt}] Connection error ({error_type}): {e}, invalidating connection...")
             self._invalidate_connection(simulation)
             return TradingResponse(
                 request_id=request.request_id,
@@ -524,7 +568,7 @@ class TradingWorker:
             )
             
             if is_connection_error:
-                logger.error(f"Detected connection error in exception: {e}, invalidating connection...")
+                logger.error(f"[Attempt {attempt}] Detected connection error: {e}, invalidating connection...")
                 self._invalidate_connection(simulation)
                 return TradingResponse(
                     request_id=request.request_id,
@@ -532,7 +576,7 @@ class TradingWorker:
                     error=f"Connection error: {e}",
                 )
             
-            logger.exception(f"Error processing request: {e}")
+            logger.exception(f"[Attempt {attempt}] Error processing request: {e}")
             return TradingResponse(
                 request_id=request.request_id,
                 success=False,
