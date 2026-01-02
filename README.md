@@ -9,9 +9,12 @@
 ## ✨ 功能特色
 
 - 🔗 **TradingView Webhook 整合** - 直接接收 TradingView 警報，自動下單
+- 🌐 **內建 HTTPS 隧道** - 透過 NGROK 自動提供公開 HTTPS URL，無需設定 SSL 憑證
+- 🛡️ **IP 白名單** - NGINX 反向代理支援 IP 過濾，保護 API 端點
+- 🪟 **Windows 原生支援** - 直接使用 Docker Desktop 運行，無需 WSL
+- 🔄 **自動重連機制** - Token 過期或連線錯誤時自動重試（最多 3 次）
 - 📊 **Web 控制台** - 美觀的中文介面，查看委託紀錄、持倉狀態
-- 🔄 **訂單狀態追蹤** - 背景自動檢查訂單成交狀態，支援手動重新查詢
-- 🐳 **Docker 部署** - 一鍵部署，包含 PostgreSQL 資料庫與 Redis
+- 🐳 **Docker 一鍵部署** - 包含 NGINX、NGROK、PostgreSQL、Redis 完整架構
 - 🔐 **API 金鑰驗證** - 保護敏感端點
 - 📜 **商品查詢** - 查看所有可交易的期貨商品代碼
 - 🔌 **Redis 訊息佇列** - 單一連線架構，避免 "Too Many Connections" 問題
