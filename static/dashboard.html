@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>自動交易控制台</title>
     <!-- Cache bust: bump version when files change -->
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=1">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=5">
 </head>
 <body>
     <div class="container">
@@ -25,11 +25,165 @@
         <div class="error-msg" id="errorMsg"></div>
         
         <div class="tabs">
+            <button class="tab" onclick="switchTab('trading')">🚀 快速下單</button>
             <button class="tab active" onclick="switchTab('orders')">📋 委託紀錄</button>
             <button class="tab" onclick="switchTab('positions')">💼 目前持倉</button>
             <button class="tab" onclick="switchTab('account')">💰 帳戶資訊</button>
             <button class="tab" onclick="switchTab('symbols')">📜 可用商品</button>
+            <button class="tab" onclick="switchTab('limits')">📊 API 限制</button>
             <button class="tab" onclick="switchTab('webhook')">🔗 TradingView 設定</button>
+        </div>
+        
+        <!-- Trading Tab (NEW) -->
+        <div id="trading-tab" class="tab-content">
+            <div class="trading-panel">
+                <!-- Left: Order Panel -->
+                <div class="order-panel">
+                    <div class="panel-header">
+                        <h2>🚀 快速下單</h2>
+                        <div class="trading-mode-badge" id="tradingModeBadge">
+                            <span class="mode-dot simulation"></span>
+                            <span id="tradingModeText">模擬模式</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Symbol Selector -->
+                    <div class="form-group">
+                        <label>商品選擇</label>
+                        <div class="symbol-selector">
+                            <select id="tradingSymbol" onchange="onSymbolChange()">
+                                <option value="">-- 選擇商品 --</option>
+                                <optgroup label="微型台指 (TMF)">
+                                    <option value="TMFR1">TMFR1 - 微台近月</option>
+                                </optgroup>
+                                <optgroup label="小台指 (MXF)">
+                                    <option value="MXFR1">MXFR1 - 小台近月</option>
+                                </optgroup>
+                                <optgroup label="大台指 (TXF)">
+                                    <option value="TXFR1">TXFR1 - 大台近月</option>
+                                </optgroup>
+                            </select>
+                            <button class="btn-icon" onclick="refreshSymbols()" title="重新載入商品">🔄</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Quote Display -->
+                    <div class="quote-display" id="quoteDisplay">
+                        <div class="quote-price">
+                            <span class="price-label">現價</span>
+                            <span class="price-value" id="currentPrice">--</span>
+                        </div>
+                        <div class="quote-info">
+                            <div class="quote-item">
+                                <span class="label">漲停</span>
+                                <span class="value up" id="limitUp">--</span>
+                            </div>
+                            <div class="quote-item">
+                                <span class="label">跌停</span>
+                                <span class="value down" id="limitDown">--</span>
+                            </div>
+                            <div class="quote-item">
+                                <span class="label">參考</span>
+                                <span class="value" id="refPrice">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Quantity -->
+                    <div class="form-group">
+                        <label>委託口數</label>
+                        <div class="quantity-input">
+                            <button class="qty-btn" onclick="adjustQty(-1)">−</button>
+                            <input type="number" id="orderQuantity" value="1" min="1" max="100">
+                            <button class="qty-btn" onclick="adjustQty(1)">+</button>
+                        </div>
+                        <div class="qty-presets">
+                            <button onclick="setQty(1)">1</button>
+                            <button onclick="setQty(2)">2</button>
+                            <button onclick="setQty(5)">5</button>
+                            <button onclick="setQty(10)">10</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="action-buttons">
+                        <button class="btn-long" onclick="placeOrder('long_entry')" id="btnLongEntry">
+                            <span class="btn-icon">📈</span>
+                            <span class="btn-text">做多</span>
+                            <span class="btn-sub">買進開倉</span>
+                        </button>
+                        <button class="btn-short" onclick="placeOrder('short_entry')" id="btnShortEntry">
+                            <span class="btn-icon">📉</span>
+                            <span class="btn-text">做空</span>
+                            <span class="btn-sub">賣出開倉</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Close Position Buttons -->
+                    <div class="close-buttons">
+                        <button class="btn-close-long" onclick="placeOrder('long_exit')">
+                            <span>📤 平多</span>
+                        </button>
+                        <button class="btn-close-short" onclick="placeOrder('short_exit')">
+                            <span>📥 平空</span>
+                        </button>
+                        <button class="btn-close-all" onclick="closeAllPositions()">
+                            <span>⚡ 全部平倉</span>
+                        </button>
+                    </div>
+                    
+                    <!-- Order Status -->
+                    <div class="order-status" id="orderStatus" style="display: none;">
+                        <div class="status-icon" id="statusIcon">⏳</div>
+                        <div class="status-text" id="statusText">處理中...</div>
+                    </div>
+                </div>
+                
+                <!-- Right: Position & Info Panel -->
+                <div class="info-panel">
+                    <!-- Current Position -->
+                    <div class="position-card">
+                        <div class="card-header">
+                            <h3>💼 目前持倉</h3>
+                            <button class="btn-refresh" onclick="refreshPositions()">🔄</button>
+                        </div>
+                        <div class="position-content" id="currentPositionDisplay">
+                            <div class="no-position">無持倉</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Account Summary -->
+                    <div class="account-card">
+                        <div class="card-header">
+                            <h3>💰 帳戶摘要</h3>
+                        </div>
+                        <div class="account-content">
+                            <div class="account-row">
+                                <span class="label">可用保證金</span>
+                                <span class="value" id="tradingMargin">--</span>
+                            </div>
+                            <div class="account-row">
+                                <span class="label">未實現損益</span>
+                                <span class="value" id="tradingPnl">--</span>
+                            </div>
+                            <div class="account-row">
+                                <span class="label">風險指標</span>
+                                <span class="value" id="tradingRisk">--</span>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Recent Orders -->
+                    <div class="recent-orders-card">
+                        <div class="card-header">
+                            <h3>📋 最近委託</h3>
+                        </div>
+                        <div class="recent-orders" id="recentOrdersList">
+                            <div class="no-orders">尚無委託</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
         
         <!-- Orders Tab -->
@@ -134,6 +288,211 @@
             </div>
             
             <div id="symbolsTable"><div class="empty">點擊「重新載入」取得商品列表</div></div>
+        </div>
+        
+        <!-- API Limits Tab -->
+        <div id="limits-tab" class="tab-content">
+            <div class="info-card">
+                <h2>📊 API 使用量監控</h2>
+                <p style="color: #a1a1aa; margin-top: 0.5rem;">即時查看 Shioaji API 的使用量與限制狀態</p>
+            </div>
+            
+            <!-- Real-time Usage Stats -->
+            <div class="usage-header">
+                <h3>📡 即時使用量</h3>
+                <button class="btn-primary" onclick="fetchUsage()">🔄 重新整理</button>
+            </div>
+            
+            <div class="usage-grid" id="usageStats">
+                <!-- 連線數 -->
+                <div class="usage-card">
+                    <div class="usage-icon">🔗</div>
+                    <div class="usage-info">
+                        <div class="usage-label">連線數</div>
+                        <div class="usage-value">
+                            <span id="usageConnections">-</span>
+                            <span class="usage-limit">/ 5</span>
+                        </div>
+                        <div class="usage-bar">
+                            <div class="usage-bar-fill" id="connectionsBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 流量使用 -->
+                <div class="usage-card wide">
+                    <div class="usage-icon">📦</div>
+                    <div class="usage-info">
+                        <div class="usage-label">今日流量</div>
+                        <div class="usage-value">
+                            <span id="usageBytes">-</span>
+                            <span class="usage-limit">/ <span id="usageLimitBytes">-</span></span>
+                        </div>
+                        <div class="usage-bar">
+                            <div class="usage-bar-fill" id="bytesBar" style="width: 0%"></div>
+                        </div>
+                        <div class="usage-detail">
+                            剩餘: <span id="usageRemainingBytes">-</span> (<span id="usageRemainingPercent">-</span>%)
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Limits Reference -->
+            <div class="info-card" style="margin-top: 1.5rem;">
+                <h3>📋 API 限制參考</h3>
+            </div>
+            
+            <div class="limits-grid">
+                <!-- 帳務查詢 -->
+                <div class="limit-card">
+                    <div class="limit-header">
+                        <span class="limit-icon">💰</span>
+                        <h3>帳務查詢</h3>
+                    </div>
+                    <div class="limit-value">
+                        <span class="number">25</span>
+                        <span class="unit">次 / 5秒</span>
+                    </div>
+                    <div class="limit-apis">
+                        <div class="api-tag">list_profit_loss_detail</div>
+                        <div class="api-tag">account_balance</div>
+                        <div class="api-tag">list_settlements</div>
+                        <div class="api-tag">list_profit_loss</div>
+                        <div class="api-tag">list_positions</div>
+                        <div class="api-tag">margin</div>
+                    </div>
+                    <div class="limit-note">以上查詢總次數 5 秒上限 25 次</div>
+                </div>
+                
+                <!-- 委託操作 -->
+                <div class="limit-card">
+                    <div class="limit-header">
+                        <span class="limit-icon">📝</span>
+                        <h3>委託操作</h3>
+                    </div>
+                    <div class="limit-value">
+                        <span class="number">250</span>
+                        <span class="unit">次 / 10秒</span>
+                    </div>
+                    <div class="limit-apis">
+                        <div class="api-tag">place_order</div>
+                        <div class="api-tag">update_status</div>
+                        <div class="api-tag">update_qty</div>
+                        <div class="api-tag">update_price</div>
+                        <div class="api-tag">cancel_order</div>
+                    </div>
+                    <div class="limit-note">以上查詢總次數 10 秒上限 250 次</div>
+                </div>
+                
+                <!-- 訂閱數 -->
+                <div class="limit-card">
+                    <div class="limit-header">
+                        <span class="limit-icon">📡</span>
+                        <h3>訂閱數</h3>
+                    </div>
+                    <div class="limit-value">
+                        <span class="number">200</span>
+                        <span class="unit">個</span>
+                    </div>
+                    <div class="limit-apis">
+                        <div class="api-tag">api.subscribe()</div>
+                    </div>
+                    <div class="limit-note">即時行情訂閱數量上限 200 個</div>
+                </div>
+                
+                <!-- 連線數 -->
+                <div class="limit-card">
+                    <div class="limit-header">
+                        <span class="limit-icon">🔗</span>
+                        <h3>連線數</h3>
+                    </div>
+                    <div class="limit-value">
+                        <span class="number">5</span>
+                        <span class="unit">個連線</span>
+                    </div>
+                    <div class="limit-apis">
+                        <div class="api-tag">api.login()</div>
+                    </div>
+                    <div class="limit-note">同一永豐金證券 person_id，僅可使用最多 5 個連線<br>⚠️ 注意: api.login() 即建立一個連線</div>
+                </div>
+                
+                <!-- 登入次數 -->
+                <div class="limit-card">
+                    <div class="limit-header">
+                        <span class="limit-icon">🔐</span>
+                        <h3>登入次數</h3>
+                    </div>
+                    <div class="limit-value">
+                        <span class="number">1000</span>
+                        <span class="unit">次 / 天</span>
+                    </div>
+                    <div class="limit-apis">
+                        <div class="api-tag">api.login()</div>
+                    </div>
+                    <div class="limit-note">每日登入次數上限 1000 次</div>
+                </div>
+                
+                <!-- 行情查詢 -->
+                <div class="limit-card">
+                    <div class="limit-header">
+                        <span class="limit-icon">📈</span>
+                        <h3>行情查詢</h3>
+                    </div>
+                    <div class="limit-value">
+                        <span class="number">50</span>
+                        <span class="unit">次 / 5秒</span>
+                    </div>
+                    <div class="limit-apis">
+                        <div class="api-tag">ticks</div>
+                        <div class="api-tag">kbars</div>
+                        <div class="api-tag">snapshots</div>
+                    </div>
+                    <div class="limit-note">歷史行情查詢 5 秒上限 50 次</div>
+                </div>
+            </div>
+            
+            <!-- 流量限制 -->
+            <div class="info-card" style="margin-top: 1.5rem;">
+                <h3>📦 每日流量限制</h3>
+                <p style="color: #a1a1aa; margin: 0.5rem 0 1rem;">依據近 30 日成交金額決定每日流量上限</p>
+                <table class="limits-table">
+                    <thead>
+                        <tr>
+                            <th>近 30 日成交金額</th>
+                            <th>每日流量限制</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>0 元</td>
+                            <td><strong style="color: #ffc107;">500 MB</strong></td>
+                        </tr>
+                        <tr>
+                            <td>1 元 ~ 1 億元</td>
+                            <td><strong style="color: #00d9ff;">2 GB</strong></td>
+                        </tr>
+                        <tr>
+                            <td>> 1 億元</td>
+                            <td><strong style="color: #00ff88;">10 GB</strong></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- 注意事項 -->
+            <div class="info-card" style="margin-top: 1.5rem;">
+                <h3>⚠️ 重要注意事項</h3>
+                <div class="alert alert-warning" style="margin-top: 1rem;">
+                    <ul style="margin: 0; padding-left: 1.5rem; line-height: 2;">
+                        <li>流量超過限制時，行情查詢將回傳空值</li>
+                        <li>使用量超過限制將<strong>暫停服務一分鐘</strong></li>
+                        <li>不使用時請呼叫 <code>api.logout()</code> 釋放連線</li>
+                        <li>連線閒置約 5 分鐘後會自動斷線</li>
+                        <li>可使用 <code>api.usage()</code> 查詢目前使用量</li>
+                    </ul>
+                </div>
+            </div>
         </div>
         
         <!-- Webhook Tab -->
@@ -370,6 +729,6 @@ if (strategy.position_size < 0)
     </div>
     
     <!-- Cache bust: bump version when files change -->
-    <script src="/static/js/dashboard.js?v=1"></script>
+    <script src="/static/js/dashboard.js?v=5"></script>
 </body>
 </html>

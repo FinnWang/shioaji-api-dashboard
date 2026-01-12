@@ -567,6 +567,19 @@ class TradingWorker:
                     data=margin,
                 )
 
+            elif operation == TradingOperation.GET_USAGE.value:
+                usage = api.usage()
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data={
+                        "connections": usage.connections,
+                        "bytes": usage.bytes,
+                        "limit_bytes": usage.limit_bytes,
+                        "remaining_bytes": usage.remaining_bytes,
+                    },
+                )
+
             else:
                 return TradingResponse(
                     request_id=request.request_id,

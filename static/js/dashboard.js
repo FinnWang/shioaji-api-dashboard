@@ -621,3 +621,575 @@ function hideError() {
     document.getElementById('errorMsg').style.display = 'none'; 
 }
 
+
+
+// ===== Trading Panel Functions =====
+
+let tradingSymbols = [];
+let selectedSymbolInfo = null;
+
+// Initialize trading panel when tab is switched
+function initTradingPanel() {
+    updateTradingModeDisplay();
+    loadTradingSymbols();
+    refreshPositions();
+    refreshAccountSummary();
+    loadRecentOrders();
+}
+
+// Update trading mode display
+function updateTradingModeDisplay() {
+    const simulationMode = document.getElementById('simulationMode').checked;
+    const badge = document.getElementById('tradingModeBadge');
+    const text = document.getElementById('tradingModeText');
+    const dot = badge.querySelector('.mode-dot');
+    
+    if (simulationMode) {
+        badge.classList.remove('real-mode');
+        text.textContent = '模擬模式';
+        dot.classList.remove('real');
+        dot.classList.add('simulation');
+    } else {
+        badge.classList.add('real-mode');
+        text.textContent = '實盤模式';
+        dot.classList.add('real');
+        dot.classList.remove('simulation');
+    }
+}
+
+// Load trading symbols
+async function loadTradingSymbols() {
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    try {
+        const response = await fetch(`/symbols?simulation=${simulationMode}`);
+        if (!response.ok) throw new Error('Failed to load symbols');
+        
+        const data = await response.json();
+        tradingSymbols = data.symbols || [];
+        
+        // Update symbol selector
+        const select = document.getElementById('tradingSymbol');
+        select.innerHTML = '<option value="">-- 選擇商品 --</option>';
+        
+        // Group by product type
+        const tmfGroup = document.createElement('optgroup');
+        tmfGroup.label = '微型台指 (TMF)';
+        
+        const mxfGroup = document.createElement('optgroup');
+        mxfGroup.label = '小台指 (MXF)';
+        
+        const txfGroup = document.createElement('optgroup');
+        txfGroup.label = '大台指 (TXF)';
+        
+        const otherGroup = document.createElement('optgroup');
+        otherGroup.label = '其他';
+        
+        tradingSymbols.forEach(s => {
+            const option = document.createElement('option');
+            option.value = s.symbol;
+            option.textContent = `${s.symbol} - ${s.name}`;
+            option.dataset.info = JSON.stringify(s);
+            
+            if (s.symbol.startsWith('TMF')) {
+                tmfGroup.appendChild(option);
+            } else if (s.symbol.startsWith('MXF')) {
+                mxfGroup.appendChild(option);
+            } else if (s.symbol.startsWith('TXF')) {
+                txfGroup.appendChild(option);
+            } else {
+                otherGroup.appendChild(option);
+            }
+        });
+        
+        if (tmfGroup.children.length > 0) select.appendChild(tmfGroup);
+        if (mxfGroup.children.length > 0) select.appendChild(mxfGroup);
+        if (txfGroup.children.length > 0) select.appendChild(txfGroup);
+        if (otherGroup.children.length > 0) select.appendChild(otherGroup);
+        
+        // Select first TMF symbol by default (微型台指)
+        if (tmfGroup.children.length > 0) {
+            select.value = tmfGroup.children[0].value;
+            onSymbolChange();
+        } else if (mxfGroup.children.length > 0) {
+            select.value = mxfGroup.children[0].value;
+            onSymbolChange();
+        }
+        
+    } catch (error) {
+        console.error('Error loading symbols:', error);
+    }
+}
+
+function refreshSymbols() {
+    loadTradingSymbols();
+}
+
+// Handle symbol change
+async function onSymbolChange() {
+    const select = document.getElementById('tradingSymbol');
+    const symbol = select.value;
+    
+    if (!symbol) {
+        resetQuoteDisplay();
+        return;
+    }
+    
+    // Get symbol info
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    try {
+        const response = await fetch(`/symbols/${symbol}?simulation=${simulationMode}`);
+        if (response.ok) {
+            selectedSymbolInfo = await response.json();
+            updateQuoteDisplay(selectedSymbolInfo);
+        }
+    } catch (error) {
+        console.error('Error fetching symbol info:', error);
+    }
+}
+
+function updateQuoteDisplay(info) {
+    document.getElementById('currentPrice').textContent = info.reference?.toLocaleString() || '--';
+    document.getElementById('limitUp').textContent = info.limit_up?.toLocaleString() || '--';
+    document.getElementById('limitDown').textContent = info.limit_down?.toLocaleString() || '--';
+    document.getElementById('refPrice').textContent = info.reference?.toLocaleString() || '--';
+}
+
+function resetQuoteDisplay() {
+    document.getElementById('currentPrice').textContent = '--';
+    document.getElementById('limitUp').textContent = '--';
+    document.getElementById('limitDown').textContent = '--';
+    document.getElementById('refPrice').textContent = '--';
+    selectedSymbolInfo = null;
+}
+
+// Quantity controls
+function adjustQty(delta) {
+    const input = document.getElementById('orderQuantity');
+    let value = parseInt(input.value) || 1;
+    value = Math.max(1, Math.min(100, value + delta));
+    input.value = value;
+}
+
+function setQty(qty) {
+    document.getElementById('orderQuantity').value = qty;
+}
+
+// Place order
+async function placeOrder(action) {
+    const authKey = document.getElementById('authKey').value;
+    const symbol = document.getElementById('tradingSymbol').value;
+    const quantity = parseInt(document.getElementById('orderQuantity').value) || 1;
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    if (!authKey) {
+        showOrderStatus('error', '請先輸入驗證金鑰');
+        return;
+    }
+    
+    if (!symbol) {
+        showOrderStatus('error', '請選擇交易商品');
+        return;
+    }
+    
+    // Confirm for real trading
+    if (!simulationMode) {
+        const actionText = actionLabels[action] || action;
+        if (!confirm(`⚠️ 實盤交易確認\n\n動作: ${actionText}\n商品: ${symbol}\n口數: ${quantity}\n\n確定要執行嗎？`)) {
+            return;
+        }
+    }
+    
+    showOrderStatus('pending', '委託處理中...');
+    
+    try {
+        const response = await fetch(`/order?simulation=${simulationMode}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Auth-Key': authKey
+            },
+            body: JSON.stringify({
+                action: action,
+                symbol: symbol,
+                quantity: quantity
+            })
+        });
+        
+        const result = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(result.detail || '下單失敗');
+        }
+        
+        if (result.status === 'no_action') {
+            showOrderStatus('info', result.message || '無需執行動作');
+        } else {
+            showOrderStatus('success', `委託成功！訂單 #${result.order_id}`);
+        }
+        
+        // Refresh data
+        setTimeout(() => {
+            refreshPositions();
+            loadRecentOrders();
+        }, 1000);
+        
+    } catch (error) {
+        showOrderStatus('error', error.message);
+    }
+}
+
+// Close all positions
+async function closeAllPositions() {
+    const authKey = document.getElementById('authKey').value;
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    if (!authKey) {
+        showOrderStatus('error', '請先輸入驗證金鑰');
+        return;
+    }
+    
+    if (!confirm('確定要平倉所有持倉嗎？')) {
+        return;
+    }
+    
+    showOrderStatus('pending', '平倉處理中...');
+    
+    try {
+        // Get current positions
+        const posResponse = await fetch(`/positions?simulation=${simulationMode}`, {
+            headers: { 'X-Auth-Key': authKey }
+        });
+        
+        if (!posResponse.ok) throw new Error('無法取得持倉資料');
+        
+        const posData = await posResponse.json();
+        const positions = posData.positions || [];
+        
+        if (positions.length === 0) {
+            showOrderStatus('info', '目前無持倉');
+            return;
+        }
+        
+        // Close each position
+        let closedCount = 0;
+        for (const pos of positions) {
+            const action = pos.direction.toLowerCase() === 'buy' ? 'long_exit' : 'short_exit';
+            
+            const response = await fetch(`/order?simulation=${simulationMode}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Auth-Key': authKey
+                },
+                body: JSON.stringify({
+                    action: action,
+                    symbol: pos.symbol,
+                    quantity: pos.quantity
+                })
+            });
+            
+            if (response.ok) closedCount++;
+        }
+        
+        showOrderStatus('success', `已平倉 ${closedCount} 筆持倉`);
+        
+        setTimeout(() => {
+            refreshPositions();
+            loadRecentOrders();
+        }, 1000);
+        
+    } catch (error) {
+        showOrderStatus('error', error.message);
+    }
+}
+
+function showOrderStatus(type, message) {
+    const statusDiv = document.getElementById('orderStatus');
+    const iconEl = document.getElementById('statusIcon');
+    const textEl = document.getElementById('statusText');
+    
+    statusDiv.style.display = 'flex';
+    statusDiv.className = 'order-status ' + type;
+    
+    const icons = {
+        pending: '⏳',
+        success: '✅',
+        error: '❌',
+        info: 'ℹ️'
+    };
+    
+    iconEl.textContent = icons[type] || '●';
+    textEl.textContent = message;
+    
+    // Auto hide after 5 seconds for success/info
+    if (type === 'success' || type === 'info') {
+        setTimeout(() => {
+            statusDiv.style.display = 'none';
+        }, 5000);
+    }
+}
+
+// Refresh positions for trading panel
+async function refreshPositions() {
+    const authKey = document.getElementById('authKey').value;
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    if (!authKey) return;
+    
+    try {
+        const response = await fetch(`/positions?simulation=${simulationMode}`, {
+            headers: { 'X-Auth-Key': authKey }
+        });
+        
+        if (!response.ok) return;
+        
+        const data = await response.json();
+        const positions = data.positions || [];
+        
+        const container = document.getElementById('currentPositionDisplay');
+        
+        if (positions.length === 0) {
+            container.innerHTML = '<div class="no-position">無持倉</div>';
+            return;
+        }
+        
+        let html = '';
+        for (const pos of positions) {
+            const isLong = pos.direction.toLowerCase() === 'buy';
+            const dirClass = isLong ? 'long' : 'short';
+            const dirText = isLong ? '多' : '空';
+            const pnlClass = pos.pnl >= 0 ? 'pnl-positive' : 'pnl-negative';
+            
+            html += `
+                <div class="position-item">
+                    <div>
+                        <span class="position-symbol">${pos.symbol}</span>
+                        <span class="position-direction ${dirClass}">${dirText}</span>
+                    </div>
+                    <div>
+                        <span class="position-qty">${pos.quantity}口</span>
+                        <span class="position-pnl ${pnlClass}">${pos.pnl >= 0 ? '+' : ''}${pos.pnl.toLocaleString()}</span>
+                    </div>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error refreshing positions:', error);
+    }
+}
+
+// Refresh account summary
+async function refreshAccountSummary() {
+    const authKey = document.getElementById('authKey').value;
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    if (!authKey) return;
+    
+    try {
+        const response = await fetch(`/margin?simulation=${simulationMode}`, {
+            headers: { 'X-Auth-Key': authKey }
+        });
+        
+        if (!response.ok) return;
+        
+        const margin = await response.json();
+        
+        document.getElementById('tradingMargin').textContent = 
+            (margin.available_margin || 0).toLocaleString() + ' 元';
+        
+        // Get positions for unrealized P&L
+        const posResponse = await fetch(`/positions?simulation=${simulationMode}`, {
+            headers: { 'X-Auth-Key': authKey }
+        });
+        
+        if (posResponse.ok) {
+            const posData = await posResponse.json();
+            const positions = posData.positions || [];
+            const totalPnl = positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
+            
+            const pnlEl = document.getElementById('tradingPnl');
+            pnlEl.textContent = (totalPnl >= 0 ? '+' : '') + totalPnl.toLocaleString() + ' 元';
+            pnlEl.className = 'value ' + (totalPnl >= 0 ? 'pnl-positive' : 'pnl-negative');
+        }
+        
+        document.getElementById('tradingRisk').textContent = 
+            (margin.risk_indicator || 0).toFixed(2) + '%';
+        
+    } catch (error) {
+        console.error('Error refreshing account:', error);
+    }
+}
+
+// Load recent orders
+async function loadRecentOrders() {
+    const authKey = document.getElementById('authKey').value;
+    
+    if (!authKey) return;
+    
+    try {
+        const response = await fetch('/orders?limit=5', {
+            headers: { 'X-Auth-Key': authKey }
+        });
+        
+        if (!response.ok) return;
+        
+        const orders = await response.json();
+        const container = document.getElementById('recentOrdersList');
+        
+        if (orders.length === 0) {
+            container.innerHTML = '<div class="no-orders">尚無委託</div>';
+            return;
+        }
+        
+        let html = '';
+        for (const order of orders) {
+            const time = new Date(order.created_at);
+            const timeStr = `${time.getHours().toString().padStart(2, '0')}:${time.getMinutes().toString().padStart(2, '0')}`;
+            
+            html += `
+                <div class="recent-order-item">
+                    <span class="order-action ${order.action}">${actionIcons[order.action]?.label || order.action}</span>
+                    <span>${order.symbol}</span>
+                    <span>${order.quantity}口</span>
+                    <span class="status ${order.status === 'filled' ? 'status-success' : order.status === 'failed' ? 'status-failed' : 'status-pending'}">${statusLabels[order.status] || order.status}</span>
+                    <span class="order-time">${timeStr}</span>
+                </div>
+            `;
+        }
+        
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Error loading recent orders:', error);
+    }
+}
+
+// Override switchTab to initialize trading panel
+const originalSwitchTab = switchTab;
+switchTab = function(tab) {
+    currentTab = tab;
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
+    document.getElementById(`${tab}-tab`).classList.add('active');
+    
+    // Initialize trading panel when switched to
+    if (tab === 'trading') {
+        initTradingPanel();
+    }
+};
+
+// Listen for simulation mode changes
+document.addEventListener('DOMContentLoaded', () => {
+    const simToggle = document.getElementById('simulationMode');
+    if (simToggle) {
+        simToggle.addEventListener('change', () => {
+            updateTradingModeDisplay();
+            if (currentTab === 'trading') {
+                loadTradingSymbols();
+                refreshPositions();
+                refreshAccountSummary();
+            }
+        });
+    }
+});
+
+
+// ===== API Usage Functions =====
+
+async function fetchUsage() {
+    const authKey = document.getElementById('authKey').value;
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    if (!authKey) {
+        showError('請輸入驗證金鑰');
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/usage?simulation=${simulationMode}`, {
+            headers: { 'X-Auth-Key': authKey }
+        });
+        
+        if (!response.ok) {
+            throw new Error(response.status === 401 ? '驗證金鑰無效' : '載入失敗');
+        }
+        
+        const data = await response.json();
+        updateUsageDisplay(data);
+        hideError();
+        
+    } catch (error) {
+        showError(error.message);
+    }
+}
+
+function updateUsageDisplay(data) {
+    // Connections
+    const connections = data.connections || 0;
+    const maxConnections = 5;
+    const connectionsPercent = (connections / maxConnections) * 100;
+    
+    document.getElementById('usageConnections').textContent = connections;
+    document.getElementById('connectionsBar').style.width = `${connectionsPercent}%`;
+    
+    // Set bar color based on usage
+    const connectionsBar = document.getElementById('connectionsBar');
+    if (connectionsPercent >= 80) {
+        connectionsBar.classList.add('danger');
+        connectionsBar.classList.remove('warning');
+    } else if (connectionsPercent >= 60) {
+        connectionsBar.classList.add('warning');
+        connectionsBar.classList.remove('danger');
+    } else {
+        connectionsBar.classList.remove('warning', 'danger');
+    }
+    
+    // Bytes
+    const bytes = data.bytes || 0;
+    const limitBytes = data.limit_bytes || 1;
+    const remainingBytes = data.remaining_bytes || 0;
+    const bytesPercent = (bytes / limitBytes) * 100;
+    const remainingPercent = (remainingBytes / limitBytes) * 100;
+    
+    document.getElementById('usageBytes').textContent = formatBytes(bytes);
+    document.getElementById('usageLimitBytes').textContent = formatBytes(limitBytes);
+    document.getElementById('usageRemainingBytes').textContent = formatBytes(remainingBytes);
+    document.getElementById('usageRemainingPercent').textContent = remainingPercent.toFixed(1);
+    document.getElementById('bytesBar').style.width = `${bytesPercent}%`;
+    
+    // Set bar color based on usage
+    const bytesBar = document.getElementById('bytesBar');
+    if (bytesPercent >= 80) {
+        bytesBar.classList.add('danger');
+        bytesBar.classList.remove('warning');
+    } else if (bytesPercent >= 60) {
+        bytesBar.classList.add('warning');
+        bytesBar.classList.remove('danger');
+    } else {
+        bytesBar.classList.remove('warning', 'danger');
+    }
+}
+
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+// Auto-fetch usage when switching to limits tab
+const originalSwitchTabForLimits = switchTab;
+switchTab = function(tab) {
+    originalSwitchTabForLimits(tab);
+    
+    if (tab === 'limits') {
+        fetchUsage();
+    }
+};

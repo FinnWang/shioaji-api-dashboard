@@ -860,7 +860,26 @@ async def get_margin_info(
         raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-        raise HTTPException(status_code=500, detail=f"Error checking order status: {e}")
+
+
+@app.get("/usage")
+async def get_api_usage(
+    _: str = Depends(verify_auth_key),
+    simulation: bool = Query(True, description="Use simulation mode"),
+):
+    """Get API usage information (連線數、流量)."""
+    try:
+        queue_client = get_queue_client()
+        response = queue_client.get_usage(simulation=simulation)
+        
+        if not response.success:
+            raise HTTPException(status_code=503, detail=response.error)
+        
+        return response.data
+    except (TimeoutError, ConnectionError) as e:
+        raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")

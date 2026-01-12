@@ -38,6 +38,7 @@ class TradingOperation(str, Enum):
     LIST_SETTLEMENTS = "list_settlements"
     LIST_PROFIT_LOSS = "list_profit_loss"
     GET_MARGIN = "get_margin"
+    GET_USAGE = "get_usage"
     PING = "ping"
 
 
@@ -251,6 +252,10 @@ class TradingQueueClient:
     def get_margin(self, simulation: bool = True) -> TradingResponse:
         """Get margin information (保證金)."""
         return self.submit_request(TradingOperation.GET_MARGIN, simulation)
+
+    def get_usage(self, simulation: bool = True) -> TradingResponse:
+        """Get API usage information (連線數、流量)."""
+        return self.submit_request(TradingOperation.GET_USAGE, simulation)
 
 
 # Singleton instance for FastAPI workers
