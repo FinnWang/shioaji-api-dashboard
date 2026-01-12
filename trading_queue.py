@@ -34,6 +34,10 @@ class TradingOperation(str, Enum):
     PLACE_ENTRY_ORDER = "place_entry_order"
     PLACE_EXIT_ORDER = "place_exit_order"
     CHECK_ORDER_STATUS = "check_order_status"
+    LIST_TRADES = "list_trades"
+    LIST_SETTLEMENTS = "list_settlements"
+    LIST_PROFIT_LOSS = "list_profit_loss"
+    GET_MARGIN = "get_margin"
     PING = "ping"
 
 
@@ -231,6 +235,22 @@ class TradingQueueClient:
             params={"order_id": order_id, "seqno": seqno},
             timeout=60,  # Order status checks may take longer
         )
+
+    def list_trades(self, simulation: bool = True) -> TradingResponse:
+        """Get list of all trades (成交紀錄)."""
+        return self.submit_request(TradingOperation.LIST_TRADES, simulation)
+
+    def list_settlements(self, simulation: bool = True) -> TradingResponse:
+        """Get settlement records (結算資料)."""
+        return self.submit_request(TradingOperation.LIST_SETTLEMENTS, simulation)
+
+    def list_profit_loss(self, simulation: bool = True) -> TradingResponse:
+        """Get profit/loss summary (損益)."""
+        return self.submit_request(TradingOperation.LIST_PROFIT_LOSS, simulation)
+
+    def get_margin(self, simulation: bool = True) -> TradingResponse:
+        """Get margin information (保證金)."""
+        return self.submit_request(TradingOperation.GET_MARGIN, simulation)
 
 
 # Singleton instance for FastAPI workers

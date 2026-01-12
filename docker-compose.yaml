@@ -110,6 +110,7 @@ services:
       - ./trading_queue.py:/app/trading_queue.py:ro
       # Mount CA certificate for real trading
       - ./certs:/app/certs:ro
+      - C:/ekey:/ekey:ro
     depends_on:
       redis:
         condition: service_healthy

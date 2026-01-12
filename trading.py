@@ -22,6 +22,12 @@ SUPPORTED_FUTURES = os.getenv("SUPPORTED_FUTURES", "MXF,TXF").split(",")
 SUPPORTED_FUTURES = [f.strip().upper() for f in SUPPORTED_FUTURES if f.strip()]
 logger.info(f"Supported futures: {SUPPORTED_FUTURES}")
 
+# Supported options products (configurable via ENV)
+# Default: TXO (台指選擇權)
+SUPPORTED_OPTIONS = os.getenv("SUPPORTED_OPTIONS", "TXO").split(",")
+SUPPORTED_OPTIONS = [o.strip().upper() for o in SUPPORTED_OPTIONS if o.strip()]
+logger.info(f"Supported options: {SUPPORTED_OPTIONS}")
+
 
 class ShioajiError(Exception):
     """Base exception for Shioaji operations."""
@@ -108,28 +114,57 @@ def _get_futures_contracts(api: sj.Shioaji) -> List[Contract]:
     return contracts
 
 
+def _get_options_contracts(api: sj.Shioaji) -> List[Contract]:
+    """Get all contracts from supported options products."""
+    contracts = []
+    for product in SUPPORTED_OPTIONS:
+        product_contracts = getattr(api.Contracts.Options, product, None)
+        if product_contracts:
+            # Options have many contracts, limit to reasonable number
+            contracts.extend([c for c in product_contracts][:100])  # Limit to first 100
+        else:
+            logger.warning(f"Options product '{product}' not found in api.Contracts.Options")
+    return contracts
+
+
 def get_valid_symbols(api: sj.Shioaji) -> List[str]:
-    """Get all valid trading symbols from supported futures."""
-    return [contract.symbol for contract in _get_futures_contracts(api)]
+    """Get all valid trading symbols from supported futures and options."""
+    futures = [contract.symbol for contract in _get_futures_contracts(api)]
+    options = [contract.symbol for contract in _get_options_contracts(api)]
+    return futures + options
 
 
 def get_valid_symbols_with_info(api: sj.Shioaji) -> List[dict]:
     """
-    Get all valid trading symbols with their codes from supported futures.
+    Get all valid trading symbols with their codes from supported futures and options.
     
     Returns list of dicts with:
-    - symbol: MXF202601 (YYYYMM format) - use this for trading
-    - code: MXFA6 (month letter + year digit format)
-    - name: Contract name (e.g., 小型臺指01)
+    - symbol: Contract symbol - use this for trading
+    - code: Contract code
+    - name: Contract name
+    - type: 'futures' or 'options'
     """
-    return [
-        {
+    result = []
+    
+    # Futures
+    for contract in _get_futures_contracts(api):
+        result.append({
             "symbol": contract.symbol,
             "code": contract.code,
             "name": contract.name,
-        }
-        for contract in _get_futures_contracts(api)
-    ]
+            "type": "futures",
+        })
+    
+    # Options
+    for contract in _get_options_contracts(api):
+        result.append({
+            "symbol": contract.symbol,
+            "code": contract.code,
+            "name": contract.name,
+            "type": "options",
+        })
+    
+    return result
 
 
 def get_valid_contract_codes(api: sj.Shioaji) -> List[str]:
@@ -138,19 +173,33 @@ def get_valid_contract_codes(api: sj.Shioaji) -> List[str]:
 
 
 def get_contract_from_symbol(api: sj.Shioaji, symbol: str) -> Contract:
-    """Find a contract by its symbol."""
+    """Find a contract by its symbol (supports both futures and options)."""
+    # Try futures first
     for contract in _get_futures_contracts(api):
         if contract.symbol == symbol:
             return contract
-    raise ValueError(f"Contract {symbol} not found in supported futures: {SUPPORTED_FUTURES}")
+    
+    # Try options
+    for contract in _get_options_contracts(api):
+        if contract.symbol == symbol:
+            return contract
+    
+    raise ValueError(f"Contract {symbol} not found in supported futures/options: {SUPPORTED_FUTURES}/{SUPPORTED_OPTIONS}")
 
 
 def get_contract_from_contract_code(api: sj.Shioaji, contract_code: str) -> Contract:
-    """Find a contract by its contract code."""
+    """Find a contract by its contract code (supports both futures and options)."""
+    # Try futures first
     for contract in _get_futures_contracts(api):
         if contract.code == contract_code:
             return contract
-    raise ValueError(f"Contract {contract_code} not found in supported futures: {SUPPORTED_FUTURES}")
+    
+    # Try options
+    for contract in _get_options_contracts(api):
+        if contract.code == contract_code:
+            return contract
+    
+    raise ValueError(f"Contract {contract_code} not found in supported futures/options: {SUPPORTED_FUTURES}/{SUPPORTED_OPTIONS}")
 
 
 def get_current_position(api: sj.Shioaji, contract: Contract):
@@ -377,3 +426,147 @@ def check_order_status(api: sj.Shioaji, trade) -> dict:
     except Exception as e:
         logger.exception(f"Error checking order status for order_id={order_id}: {e}")
         return {"status": "error", "error": str(e)}
+
+
+def list_trades(api: sj.Shioaji) -> List[dict]:
+    """
+    Get list of all trades (成交紀錄).
+    
+    Returns list of trade records with details like:
+    - code: contract code
+    - price: trade price
+    - quantity: trade quantity
+    - ts: timestamp
+    """
+    try:
+        logger.debug("Fetching trades list")
+        trades = api.list_trades()
+        
+        result = []
+        for trade in trades:
+            result.append({
+                "code": getattr(trade, 'code', ''),
+                "order_id": getattr(trade, 'order_id', ''),
+                "seqno": getattr(trade, 'seqno', ''),
+                "price": getattr(trade, 'price', 0),
+                "quantity": getattr(trade, 'quantity', 0),
+                "action": str(getattr(trade, 'action', '')),
+                "ts": getattr(trade, 'ts', 0),
+            })
+        
+        logger.debug(f"Found {len(result)} trades")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching trades: {e}")
+        raise OrderError(f"Failed to fetch trades: {e}") from e
+
+
+def list_settlements(api: sj.Shioaji) -> List[dict]:
+    """
+    Get settlement records (結算資料).
+    
+    Returns list of settlement records.
+    """
+    try:
+        logger.debug("Fetching settlements")
+        settlements = api.list_settlements(api.futopt_account)
+        
+        # Handle None or empty response
+        if settlements is None:
+            logger.debug("No settlements data returned (None)")
+            return []
+        
+        result = []
+        for settlement in settlements:
+            result.append({
+                "date": str(getattr(settlement, 'date', '')),
+                "amount": getattr(settlement, 'amount', 0),
+                "T_money": getattr(settlement, 'T_money', 0),
+                "T1_money": getattr(settlement, 'T1_money', 0),
+            })
+        
+        logger.debug(f"Found {len(result)} settlements")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching settlements: {e}")
+        raise OrderError(f"Failed to fetch settlements: {e}") from e
+
+
+def list_profit_loss(api: sj.Shioaji) -> dict:
+    """
+    Get profit/loss summary (損益).
+    
+    Returns profit/loss information.
+    """
+    try:
+        logger.debug("Fetching profit/loss")
+        pnl = api.list_profit_loss(api.futopt_account)
+        
+        result = {
+            "realized_pnl": getattr(pnl, 'realized_pnl', 0),
+            "unrealized_pnl": getattr(pnl, 'unrealized_pnl', 0),
+            "total_pnl": getattr(pnl, 'total_pnl', 0),
+        }
+        
+        logger.debug(f"P&L: realized={result['realized_pnl']}, unrealized={result['unrealized_pnl']}")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching profit/loss: {e}")
+        raise OrderError(f"Failed to fetch profit/loss: {e}") from e
+
+
+def get_margin(api: sj.Shioaji) -> dict:
+    """
+    Get margin information (保證金).
+    
+    Ref: https://sinotrade.github.io/zh/tutor/accounting/margin/
+    
+    Returns margin details including:
+    - yesterday_balance: 昨日餘額
+    - today_balance: 今日餘額
+    - available_margin: 可用保證金
+    - equity: 權益數
+    - initial_margin: 原始保證金
+    - maintenance_margin: 維持保證金
+    - margin_call: 追繳保證金
+    - risk_indicator: 風險指標
+    """
+    try:
+        logger.debug("Fetching margin info")
+        margin = api.margin(api.futopt_account)
+        
+        result = {
+            # 帳戶餘額
+            "yesterday_balance": getattr(margin, 'yesterday_balance', 0.0),
+            "today_balance": getattr(margin, 'today_balance', 0.0),
+            "deposit_withdrawal": getattr(margin, 'deposit_withdrawal', 0.0),
+            # 保證金相關
+            "available_margin": getattr(margin, 'available_margin', 0.0),
+            "initial_margin": getattr(margin, 'initial_margin', 0.0),
+            "maintenance_margin": getattr(margin, 'maintenance_margin', 0.0),
+            "margin_call": getattr(margin, 'margin_call', 0.0),
+            # 權益與風險
+            "equity": getattr(margin, 'equity', 0.0),
+            "equity_amount": getattr(margin, 'equity_amount', 0.0),
+            "risk_indicator": getattr(margin, 'risk_indicator', 0.0),
+            # 期貨部位
+            "future_open_position": getattr(margin, 'future_open_position', 0.0),
+            "today_future_open_position": getattr(margin, 'today_future_open_position', 0.0),
+            "future_settle_profitloss": getattr(margin, 'future_settle_profitloss', 0.0),
+            # 選擇權部位
+            "option_openbuy_market_value": getattr(margin, 'option_openbuy_market_value', 0.0),
+            "option_opensell_market_value": getattr(margin, 'option_opensell_market_value', 0.0),
+            "option_open_position": getattr(margin, 'option_open_position', 0.0),
+            "option_settle_profitloss": getattr(margin, 'option_settle_profitloss', 0.0),
+            # 其他
+            "fee": getattr(margin, 'fee', 0.0),
+            "tax": getattr(margin, 'tax', 0.0),
+            "royalty_revenue_expenditure": getattr(margin, 'royalty_revenue_expenditure', 0.0),
+            "order_margin_premium": getattr(margin, 'order_margin_premium', 0.0),
+        }
+        
+        logger.debug(f"Margin: today_balance={result['today_balance']}, available={result['available_margin']}, equity={result['equity']}")
+        return result
+    except Exception as e:
+        logger.error(f"Error fetching margin: {e}")
+        raise OrderError(f"Failed to fetch margin: {e}") from e

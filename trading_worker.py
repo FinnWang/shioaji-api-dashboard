@@ -531,6 +531,42 @@ class TradingWorker:
             elif operation == TradingOperation.CHECK_ORDER_STATUS.value:
                 return self._handle_check_order_status(api, request)
 
+            elif operation == TradingOperation.LIST_TRADES.value:
+                from trading import list_trades
+                trades = list_trades(api)
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data={"trades": trades, "count": len(trades)},
+                )
+
+            elif operation == TradingOperation.LIST_SETTLEMENTS.value:
+                from trading import list_settlements
+                settlements = list_settlements(api)
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data={"settlements": settlements, "count": len(settlements)},
+                )
+
+            elif operation == TradingOperation.LIST_PROFIT_LOSS.value:
+                from trading import list_profit_loss
+                pnl = list_profit_loss(api)
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data=pnl,
+                )
+
+            elif operation == TradingOperation.GET_MARGIN.value:
+                from trading import get_margin
+                margin = get_margin(api)
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data=margin,
+                )
+
             else:
                 return TradingResponse(
                     request_id=request.request_id,

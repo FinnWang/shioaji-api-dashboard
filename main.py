@@ -743,9 +743,9 @@ async def recheck_order_status(
         old_fill_status = order_record.fill_status
         
         order_record.fill_status = fill_status
-        order_record.ordno = status_info.get("ordno", order_record.ordno)
+        order_record.ordno = status_info.get("ordno")
         order_record.fill_quantity = deal_quantity
-        order_record.fill_price = fill_avg_price if fill_avg_price > 0 else order_record.fill_price
+        order_record.fill_price = fill_avg_price
         order_record.cancel_quantity = status_info.get("cancel_quantity", 0)
         order_record.updated_at = datetime.utcnow()
         
@@ -758,30 +758,108 @@ async def recheck_order_status(
             order_record.status = "cancelled"
         elif fill_status == "Failed":
             order_record.status = "failed"
-            order_record.error_message = status_info.get("msg", "") or order_record.error_message
         elif fill_status in ("PendingSubmit", "PreSubmitted", "Submitted"):
             order_record.status = "submitted"
         
         db.commit()
+        db.refresh(order_record)
         
         return {
             "order_id": order_id,
             "previous_status": old_status,
-            "previous_fill_status": old_fill_status,
             "current_status": order_record.status,
+            "previous_fill_status": old_fill_status,
             "current_fill_status": fill_status,
             "fill_quantity": deal_quantity,
             "fill_price": fill_avg_price,
-            "cancel_quantity": status_info.get("cancel_quantity", 0),
-            "order_quantity": status_info.get("order_quantity", 0),
             "deals": deals,
-            "message": f"Status updated: {old_status} -> {order_record.status}",
+            "message": "Order status updated successfully",
         }
         
     except (TimeoutError, ConnectionError) as e:
         raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
     except Exception as e:
-        logger.exception(f"Error re-checking order {order_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/trades")
+async def get_trades(
+    _: str = Depends(verify_auth_key),
+    simulation: bool = Query(True, description="Use simulation mode"),
+):
+    """Get list of all trades (成交紀錄)."""
+    try:
+        queue_client = get_queue_client()
+        response = queue_client.list_trades(simulation=simulation)
+        
+        if not response.success:
+            raise HTTPException(status_code=503, detail=response.error)
+        
+        return response.data
+    except (TimeoutError, ConnectionError) as e:
+        raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/settlements")
+async def get_settlements(
+    _: str = Depends(verify_auth_key),
+    simulation: bool = Query(True, description="Use simulation mode"),
+):
+    """Get settlement records (結算資料)."""
+    try:
+        queue_client = get_queue_client()
+        response = queue_client.list_settlements(simulation=simulation)
+        
+        if not response.success:
+            raise HTTPException(status_code=503, detail=response.error)
+        
+        return response.data
+    except (TimeoutError, ConnectionError) as e:
+        raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/profit-loss")
+async def get_profit_loss(
+    _: str = Depends(verify_auth_key),
+    simulation: bool = Query(True, description="Use simulation mode"),
+):
+    """Get profit/loss summary (損益)."""
+    try:
+        queue_client = get_queue_client()
+        response = queue_client.list_profit_loss(simulation=simulation)
+        
+        if not response.success:
+            raise HTTPException(status_code=503, detail=response.error)
+        
+        return response.data
+    except (TimeoutError, ConnectionError) as e:
+        raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/margin")
+async def get_margin_info(
+    _: str = Depends(verify_auth_key),
+    simulation: bool = Query(True, description="Use simulation mode"),
+):
+    """Get margin information (保證金)."""
+    try:
+        queue_client = get_queue_client()
+        response = queue_client.get_margin(simulation=simulation)
+        
+        if not response.success:
+            raise HTTPException(status_code=503, detail=response.error)
+        
+        return response.data
+    except (TimeoutError, ConnectionError) as e:
+        raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
         raise HTTPException(status_code=500, detail=f"Error checking order status: {e}")
 
 

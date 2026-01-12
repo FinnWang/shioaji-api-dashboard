@@ -106,6 +106,33 @@ button {
 .tab-content { display: none; overflow: hidden; max-width: 100%; }
 .tab-content.active { display: block; }
 
+/* Sub Tabs */
+.sub-tabs { display: flex; gap: 0.5rem; margin: 1.5rem 0 1rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+.sub-tab {
+    padding: 0.75rem 1.25rem;
+    background: transparent;
+    border: none;
+    color: #71717a;
+    font-size: 0.9rem;
+    font-weight: 500;
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+}
+.sub-tab:hover { color: #a1a1aa; }
+.sub-tab.active { color: #00d9ff; }
+.sub-tab.active::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #00d9ff;
+}
+.sub-tab-content { display: none; }
+.sub-tab-content.active { display: block; }
+
 /* Filters */
 .filters { 
     display: flex; 

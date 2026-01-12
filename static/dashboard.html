@@ -27,6 +27,7 @@
         <div class="tabs">
             <button class="tab active" onclick="switchTab('orders')">📋 委託紀錄</button>
             <button class="tab" onclick="switchTab('positions')">💼 目前持倉</button>
+            <button class="tab" onclick="switchTab('account')">💰 帳戶資訊</button>
             <button class="tab" onclick="switchTab('symbols')">📜 可用商品</button>
             <button class="tab" onclick="switchTab('webhook')">🔗 TradingView 設定</button>
         </div>
@@ -68,6 +69,49 @@
             </div>
             
             <div id="positionsTable"><div class="empty">請輸入驗證金鑰並點擊「載入資料」查看目前持倉</div></div>
+        </div>
+        
+        <!-- Account Tab (NEW) -->
+        <div id="account-tab" class="tab-content">
+            <div class="info-card">
+                <h2>💰 帳戶資訊</h2>
+                <p style="color: #a1a1aa; margin-top: 0.5rem;">查看保證金、損益、成交紀錄和結算資料</p>
+                <div class="alert alert-info" style="margin-top: 1rem;">
+                    💡 <strong>提示：</strong>
+                    <ul style="margin: 0.5rem 0 0 1.5rem; line-height: 1.8;">
+                        <li>模擬帳戶預設只有<strong>查詢權限</strong>（Portfolio, Data）</li>
+                        <li>如需下單功能，請向永豐金證券申請<strong>交易權限</strong></li>
+                        <li>目前可查詢：持倉、保證金、損益等資訊</li>
+                        <li>成交紀錄需要有實際交易後才會顯示</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <!-- Margin & P&L Stats -->
+            <div class="stats" id="accountStats">
+                <div class="stat-card"><h3>帳戶餘額</h3><div class="value" id="accountBalance">-</div></div>
+                <div class="stat-card"><h3>可用保證金</h3><div class="value" id="availableMargin">-</div></div>
+                <div class="stat-card" id="realizedPnlCard"><h3>已實現損益</h3><div class="value" id="realizedPnl">-</div></div>
+                <div class="stat-card" id="unrealizedPnlCard"><h3>未實現損益</h3><div class="value" id="unrealizedPnl">-</div></div>
+            </div>
+            
+            <!-- Sub Tabs -->
+            <div class="sub-tabs">
+                <button class="sub-tab active" onclick="switchAccountTab('trades')">📊 成交紀錄</button>
+                <button class="sub-tab" onclick="switchAccountTab('settlements')">📅 結算資料</button>
+            </div>
+            
+            <!-- Trades Sub-Tab -->
+            <div id="trades-subtab" class="sub-tab-content active">
+                <h3 style="margin: 1rem 0 0.5rem; color: #00d9ff;">成交紀錄</h3>
+                <div id="tradesTable"><div class="empty">點擊「載入資料」查看成交紀錄</div></div>
+            </div>
+            
+            <!-- Settlements Sub-Tab -->
+            <div id="settlements-subtab" class="sub-tab-content">
+                <h3 style="margin: 1rem 0 0.5rem; color: #00d9ff;">結算資料</h3>
+                <div id="settlementsTable"><div class="empty">點擊「載入資料」查看結算資料</div></div>
+            </div>
         </div>
         
         <!-- Symbols Tab -->

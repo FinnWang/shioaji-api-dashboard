@@ -4,7 +4,12 @@
 let orders = [];
 let positions = [];
 let symbols = [];
+let trades = [];
+let settlements = [];
+let margin = {};
+let profitLoss = {};
 let currentTab = 'orders';
+let currentAccountTab = 'trades';
 
 // URLs
 const baseUrl = window.location.origin;
@@ -139,9 +144,18 @@ function switchTab(tab) {
     document.getElementById(`${tab}-tab`).classList.add('active');
 }
 
+function switchAccountTab(tab) {
+    currentAccountTab = tab;
+    document.querySelectorAll('.sub-tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.sub-tab-content').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.sub-tab[onclick="switchAccountTab('${tab}')"]`).classList.add('active');
+    document.getElementById(`${tab}-subtab`).classList.add('active');
+}
+
 function loadCurrentTab() {
     if (currentTab === 'orders') fetchOrders();
     else if (currentTab === 'positions') fetchPositions();
+    else if (currentTab === 'account') fetchAccountData();
     else if (currentTab === 'symbols') fetchSymbols();
 }
 
@@ -439,6 +453,146 @@ function copySymbol(symbol) {
 
 function updateSymbolStats() {
     document.getElementById('symbolCount').textContent = symbols.length;
+}
+
+// Account Data
+async function fetchAccountData() {
+    const authKey = document.getElementById('authKey').value;
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    if (!authKey) { showError('請輸入驗證金鑰'); return; }
+    
+    hideError();
+    
+    // Fetch all account data in parallel, handle errors individually
+    const headers = { 'X-Auth-Key': authKey };
+    const simParam = `?simulation=${simulationMode}`;
+    
+    // Use Promise.allSettled to handle partial failures
+    const [marginResult, pnlResult, tradesResult, settlementsResult] = await Promise.allSettled([
+        fetch(`/margin${simParam}`, { headers }).then(r => r.ok ? r.json() : Promise.reject(r)),
+        fetch(`/profit-loss${simParam}`, { headers }).then(r => r.ok ? r.json() : Promise.reject(r)),
+        fetch(`/trades${simParam}`, { headers }).then(r => r.ok ? r.json() : Promise.reject(r)),
+        fetch(`/settlements${simParam}`, { headers }).then(r => r.ok ? r.json() : Promise.reject(r))
+    ]);
+    
+    // Process results, use defaults for failed requests
+    margin = marginResult.status === 'fulfilled' ? marginResult.value : {};
+    profitLoss = pnlResult.status === 'fulfilled' ? pnlResult.value : {};
+    const tradesData = tradesResult.status === 'fulfilled' ? tradesResult.value : { trades: [] };
+    const settlementsData = settlementsResult.status === 'fulfilled' ? settlementsResult.value : { settlements: [] };
+    
+    trades = tradesData.trades || [];
+    settlements = settlementsData.settlements || [];
+    
+    // Check if critical data failed
+    if (marginResult.status === 'rejected' && pnlResult.status === 'rejected') {
+        showError('載入帳戶資料失敗，請確認驗證金鑰是否正確');
+    }
+    
+    renderAccountStats();
+    renderTradesTable();
+    renderSettlementsTable();
+}
+
+function renderAccountStats() {
+    // Margin stats
+    const accountBalance = margin.account_balance || 0;
+    const availableMargin = margin.available_margin || 0;
+    
+    document.getElementById('accountBalance').textContent = 
+        accountBalance.toLocaleString();
+    document.getElementById('availableMargin').textContent = 
+        availableMargin.toLocaleString();
+    
+    // P&L stats
+    const realized = profitLoss.realized_pnl || 0;
+    const unrealized = profitLoss.unrealized_pnl || 0;
+    
+    document.getElementById('realizedPnl').textContent = 
+        (realized >= 0 ? '+' : '') + realized.toLocaleString();
+    document.getElementById('unrealizedPnl').textContent = 
+        (unrealized >= 0 ? '+' : '') + unrealized.toLocaleString();
+    
+    // Update card colors
+    const realizedCard = document.getElementById('realizedPnlCard');
+    const unrealizedCard = document.getElementById('unrealizedPnlCard');
+    
+    realizedCard.className = 'stat-card ' + (realized >= 0 ? 'pnl-positive' : 'pnl-negative');
+    unrealizedCard.className = 'stat-card ' + (unrealized >= 0 ? 'pnl-positive' : 'pnl-negative');
+    
+    // Show info message if all data is zero
+    if (accountBalance === 0 && realized === 0 && unrealized === 0 && trades.length === 0) {
+        const infoMsg = document.createElement('div');
+        infoMsg.className = 'alert alert-info';
+        infoMsg.style.marginTop = '1rem';
+        infoMsg.innerHTML = '💡 <strong>提示：</strong>模擬帳戶目前無交易資料。請先執行交易後再查看帳戶資訊。';
+        
+        const statsDiv = document.getElementById('accountStats');
+        const existingAlert = statsDiv.nextElementSibling;
+        if (existingAlert && existingAlert.classList.contains('alert')) {
+            existingAlert.remove();
+        }
+        statsDiv.after(infoMsg);
+    }
+}
+
+function renderTradesTable() {
+    if (trades.length === 0) {
+        document.getElementById('tradesTable').innerHTML = '<div class="empty">無成交紀錄</div>';
+        return;
+    }
+    
+    let html = `<table><thead><tr>
+        <th style="width:15%">時間</th>
+        <th style="width:15%">合約</th>
+        <th style="width:10%">動作</th>
+        <th style="width:10%">數量</th>
+        <th style="width:15%">價格</th>
+        <th style="width:35%">訂單ID</th>
+    </tr></thead><tbody>`;
+    
+    for (const trade of trades) {
+        const ts = trade.ts ? new Date(trade.ts * 1000).toLocaleString('zh-TW') : '-';
+        const actionColor = trade.action.toLowerCase().includes('buy') ? '#00ff88' : '#ff6b6b';
+        const actionText = trade.action.toLowerCase().includes('buy') ? '買' : '賣';
+        
+        html += `<tr>
+            <td style="font-size:0.85rem;color:#a1a1aa">${ts}</td>
+            <td style="font-family:'Consolas',monospace;color:#00d9ff">${trade.code}</td>
+            <td><span style="color:${actionColor};font-weight:600">${actionText}</span></td>
+            <td style="text-align:center;font-weight:600">${trade.quantity}</td>
+            <td style="font-family:'Consolas',monospace">${trade.price.toLocaleString()}</td>
+            <td style="font-family:'Consolas',monospace;font-size:0.8rem;color:#71717a">${trade.order_id || '-'}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('tradesTable').innerHTML = html;
+}
+
+function renderSettlementsTable() {
+    if (settlements.length === 0) {
+        document.getElementById('settlementsTable').innerHTML = '<div class="empty">無結算資料</div>';
+        return;
+    }
+    
+    let html = `<table><thead><tr>
+        <th style="width:20%">日期</th>
+        <th style="width:25%">結算金額</th>
+        <th style="width:25%">T 日資金</th>
+        <th style="width:30%">T+1 日資金</th>
+    </tr></thead><tbody>`;
+    
+    for (const settlement of settlements) {
+        html += `<tr>
+            <td style="font-family:'Consolas',monospace">${settlement.date}</td>
+            <td style="font-weight:600">${settlement.amount.toLocaleString()}</td>
+            <td>${settlement.T_money.toLocaleString()}</td>
+            <td>${settlement.T1_money.toLocaleString()}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('settlementsTable').innerHTML = html;
 }
 
 // Utilities
