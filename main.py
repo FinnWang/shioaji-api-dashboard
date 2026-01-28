@@ -16,19 +16,20 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
 
+from config import settings
 from database import get_db, SessionLocal
 from models import OrderHistory
+from status_mapper import OrderStatusMapper
 from trading_queue import get_queue_client, TradingQueueClient
 
 logger = logging.getLogger(__name__)
 
 
 ACCEPT_ACTIONS = Literal["long_entry", "long_exit", "short_entry", "short_exit"]
-AUTH_KEY = os.getenv("AUTH_KEY", "changeme")
 
 
 async def verify_auth_key(x_auth_key: str = Header(..., alias="X-Auth-Key")):
-    if x_auth_key != AUTH_KEY:
+    if x_auth_key != settings.auth_key:
         raise HTTPException(status_code=401, detail="Invalid authentication key")
     return x_auth_key
 
@@ -250,58 +251,50 @@ def verify_order_fill(
                 order_record.fill_price = status_info.get("fill_avg_price")
                 order_record.cancel_quantity = status_info.get("cancel_quantity", 0)
                 order_record.updated_at = datetime.now(timezone.utc)
-                
-                # Update main status based on fill status
-                if fill_status == "Filled":
-                    order_record.status = "filled"
-                    if safe_db_commit():
+
+                # 使用 StatusMapper 統一更新狀態
+                OrderStatusMapper.update_order_status(order_record, fill_status)
+
+                # 處理 Failed 狀態的錯誤訊息
+                if fill_status == "Failed":
+                    error_msg = status_info.get("msg") or status_info.get("error", "Order failed at exchange")
+                    order_record.error_message = error_msg
+
+                # 提交並記錄日誌
+                if fill_status == "error":
+                    logger.error(f"[BG] Error checking order {order_id}: {status_info.get('error')}")
+                    safe_db_commit()
+                elif safe_db_commit():
+                    # 記錄狀態變更日誌
+                    if fill_status == "Filled":
                         logger.info(
                             f"[BG] ✓ Order {order_id} FILLED: "
                             f"qty={status_info.get('deal_quantity')}, "
                             f"avg_price={status_info.get('fill_avg_price')}, "
                             f"deals={len(deals)}"
                         )
-                        break
-                elif fill_status == "PartFilled":
-                    order_record.status = "partial_filled"
-                    if safe_db_commit():
+                    elif fill_status == "PartFilled":
                         logger.info(
                             f"[BG] ~ Order {order_id} PARTIAL: "
                             f"filled={status_info.get('deal_quantity')}/{status_info.get('order_quantity')}, "
                             f"avg_price={status_info.get('fill_avg_price')}"
                         )
-                    # Continue checking for more fills
-                elif fill_status == "Cancelled":
-                    order_record.status = "cancelled"
-                    if safe_db_commit():
+                    elif fill_status == "Cancelled":
                         logger.info(
                             f"[BG] ✗ Order {order_id} CANCELLED: "
                             f"cancel_qty={status_info.get('cancel_quantity')}, "
                             f"msg={status_info.get('msg')}"
                         )
-                        break
-                elif fill_status == "Inactive":
-                    order_record.status = "cancelled"
-                    if safe_db_commit():
+                    elif fill_status == "Inactive":
                         logger.info(f"[BG] ✗ Order {order_id} INACTIVE (expired/rejected): msg={status_info.get('msg')}")
-                        break
-                elif fill_status in ("PendingSubmit", "PreSubmitted", "Submitted"):
-                    order_record.status = "submitted"
-                    safe_db_commit()
-                    # Already logged above
-                elif fill_status == "Failed":
-                    order_record.status = "failed"
-                    error_msg = status_info.get("msg") or status_info.get("error", "Order failed at exchange")
-                    order_record.error_message = error_msg
-                    if safe_db_commit():
-                        logger.error(f"[BG] ✗ Order {order_id} FAILED: {error_msg}, status_code={status_info.get('status_code')}")
-                        break
-                elif fill_status == "error":
-                    logger.error(f"[BG] Error checking order {order_id}: {status_info.get('error')}")
-                    safe_db_commit()
-                else:
-                    safe_db_commit()
-                    logger.warning(f"[BG] Order {order_id} unknown status: {fill_status}")
+                    elif fill_status == "Failed":
+                        logger.error(f"[BG] ✗ Order {order_id} FAILED: {order_record.error_message}, status_code={status_info.get('status_code')}")
+                    elif OrderStatusMapper.map_fill_status(fill_status) == "unknown":
+                        logger.warning(f"[BG] Order {order_id} unknown status: {fill_status}")
+
+                # 最終狀態時停止輪詢
+                if OrderStatusMapper.is_final_status(fill_status):
+                    break
             else:
                 logger.error(f"[BG] Order record not found in database: order_id={order_id}")
             
@@ -803,19 +796,10 @@ async def recheck_order_status(
         order_record.fill_price = fill_avg_price
         order_record.cancel_quantity = status_info.get("cancel_quantity", 0)
         order_record.updated_at = datetime.now(timezone.utc)
-        
-        # Update main status based on fill status
-        if fill_status == "Filled":
-            order_record.status = "filled"
-        elif fill_status == "PartFilled":
-            order_record.status = "partial_filled"
-        elif fill_status in ("Cancelled", "Inactive"):
-            order_record.status = "cancelled"
-        elif fill_status == "Failed":
-            order_record.status = "failed"
-        elif fill_status in ("PendingSubmit", "PreSubmitted", "Submitted"):
-            order_record.status = "submitted"
-        
+
+        # 使用 StatusMapper 統一更新狀態
+        OrderStatusMapper.update_order_status(order_record, fill_status)
+
         db.commit()
         db.refresh(order_record)
         

@@ -7,7 +7,6 @@ the Shioaji connection.
 """
 import json
 import logging
-import os
 import uuid
 from dataclasses import dataclass, asdict
 from typing import Any, Optional
@@ -15,9 +14,10 @@ from enum import Enum
 
 import redis
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 REQUEST_QUEUE = "trading:requests"
 RESPONSE_PREFIX = "trading:response:"
 REQUEST_TIMEOUT = 30  # seconds to wait for response
@@ -83,8 +83,9 @@ class TradingQueueClient:
     Used by FastAPI workers to communicate with the trading worker.
     """
 
-    def __init__(self, redis_url: str = REDIS_URL):
-        self.redis = redis.from_url(redis_url, decode_responses=True)
+    def __init__(self, redis_url: Optional[str] = None):
+        url = redis_url or settings.redis_url
+        self.redis = redis.from_url(url, decode_responses=True)
         self._check_connection()
 
     def _check_connection(self):

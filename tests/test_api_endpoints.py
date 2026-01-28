@@ -11,9 +11,10 @@ FastAPI API 端點單元測試
 """
 import pytest
 from datetime import datetime, timezone
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, PropertyMock
 from fastapi.testclient import TestClient
 
+from config import settings
 from trading_queue import TradingResponse
 
 
@@ -166,7 +167,7 @@ class TestVerifyAuthKey:
         client = TestClient(app)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.get("/positions", headers={"X-Auth-Key": "test-key"})
 
         # Assert
@@ -191,7 +192,7 @@ class TestVerifyAuthKey:
         client = TestClient(app)
 
         # Act
-        with patch("main.AUTH_KEY", "correct-key"):
+        with patch.object(settings, "auth_key", "correct-key"):
             response = client.get("/positions", headers={"X-Auth-Key": "wrong-key"})
 
         # Assert
@@ -556,7 +557,7 @@ class TestPositionsEndpoint:
         client = TestClient(app)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.get("/positions", headers={"X-Auth-Key": "test-key"})
 
         # Assert
@@ -576,7 +577,7 @@ class TestPositionsEndpoint:
         client = TestClient(app)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.get("/positions", headers={"X-Auth-Key": "test-key"})
 
         # Assert
@@ -879,7 +880,7 @@ class TestOrdersEndpoint:
         client = get_test_client_with_db_override(mock_db)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.get("/orders", headers={"X-Auth-Key": "test-key"})
 
         # Assert
@@ -913,7 +914,7 @@ class TestTradesEndpoint:
         client = TestClient(app)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.get("/trades", headers={"X-Auth-Key": "test-key"})
 
         # Assert
@@ -944,7 +945,7 @@ class TestMarginEndpoint:
         client = TestClient(app)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.get("/margin", headers={"X-Auth-Key": "test-key"})
 
         # Assert
@@ -976,7 +977,7 @@ class TestUsageEndpoint:
         client = TestClient(app)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.get("/usage", headers={"X-Auth-Key": "test-key"})
 
         # Assert
@@ -1024,7 +1025,7 @@ class TestRecheckOrderEndpoint:
         client = get_test_client_with_db_override(mock_db)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.post(
                 "/orders/1/recheck", headers={"X-Auth-Key": "test-key"}
             )
@@ -1043,7 +1044,7 @@ class TestRecheckOrderEndpoint:
         client = get_test_client_with_db_override(mock_db)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.post(
                 "/orders/999/recheck", headers={"X-Auth-Key": "test-key"}
             )
@@ -1065,7 +1066,7 @@ class TestRecheckOrderEndpoint:
         client = get_test_client_with_db_override(mock_db)
 
         # Act
-        with patch("main.AUTH_KEY", "test-key"):
+        with patch.object(settings, "auth_key", "test-key"):
             response = client.post(
                 "/orders/1/recheck", headers={"X-Auth-Key": "test-key"}
             )

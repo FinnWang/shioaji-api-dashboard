@@ -13,7 +13,6 @@ Features:
 """
 import json
 import logging
-import os
 import signal
 import sys
 import threading
@@ -31,13 +30,13 @@ from shioaji.error import (
     TargetContractNotExistError,
 )
 
+from config import settings
 from trading_queue import (
     TradingRequest,
     TradingResponse,
     TradingOperation,
     REQUEST_QUEUE,
     RESPONSE_PREFIX,
-    REDIS_URL,
 )
 from trading import (
     SUPPORTED_FUTURES,
@@ -77,7 +76,7 @@ class TradingWorker:
     """
 
     def __init__(self):
-        self.redis = redis.from_url(REDIS_URL, decode_responses=True)
+        self.redis = redis.from_url(settings.redis_url, decode_responses=True)
         self.running = False
         self.api_clients: Dict[bool, Optional[sj.Shioaji]] = {
             True: None,   # simulation
@@ -151,10 +150,7 @@ class TradingWorker:
         if self.api_clients[simulation] is not None:
             return self.api_clients[simulation]
 
-        api_key = os.getenv("API_KEY")
-        secret_key = os.getenv("SECRET_KEY")
-
-        if not api_key or not secret_key:
+        if not settings.validate_shioaji_credentials():
             raise ValueError("API_KEY or SECRET_KEY environment variable not set")
 
         mode_str = "simulation" if simulation else "real"
@@ -163,7 +159,7 @@ class TradingWorker:
         for attempt in range(1, MAX_RECONNECT_ATTEMPTS + 1):
             try:
                 api = sj.Shioaji(simulation=simulation)
-                api.login(api_key=api_key, secret_key=secret_key)
+                api.login(api_key=settings.api_key, secret_key=settings.secret_key)
                 logger.info(f"Successfully logged in to Shioaji ({mode_str} mode)")
 
                 # Set up event callbacks for session monitoring
@@ -198,10 +194,7 @@ class TradingWorker:
 
     def _activate_ca(self, api: sj.Shioaji):
         """Activate CA certificate for real trading."""
-        ca_path = os.getenv("CA_PATH")
-        ca_password = os.getenv("CA_PASSWORD")
-
-        if not ca_path or not ca_password:
+        if not settings.validate_ca_credentials():
             logger.warning("CA_PATH or CA_PASSWORD not set, skipping CA activation")
             return
 
@@ -213,8 +206,8 @@ class TradingWorker:
         logger.info(f"Activating CA certificate for person_id={person_id}")
 
         result = api.activate_ca(
-            ca_path=ca_path,
-            ca_passwd=ca_password,
+            ca_path=settings.ca_path,
+            ca_passwd=settings.ca_password,
             person_id=person_id,
         )
         logger.info(f"CA activation result: {result}")

@@ -1,5 +1,4 @@
 import logging
-import os
 from typing import TYPE_CHECKING, List
 
 import shioaji as sj
@@ -13,19 +12,14 @@ from shioaji.error import (
     TargetContractNotExistError,
 )
 
+from config import settings
+
 logger = logging.getLogger(__name__)
 
-# Supported futures products (configurable via ENV)
-# Default: MXF (小台), TXF (大台)
-# Available options: MXF, TXF, EXF, FXF, etc.
-SUPPORTED_FUTURES = os.getenv("SUPPORTED_FUTURES", "MXF,TXF").split(",")
-SUPPORTED_FUTURES = [f.strip().upper() for f in SUPPORTED_FUTURES if f.strip()]
+# 從統一配置取得支援的商品
+SUPPORTED_FUTURES = settings.supported_futures_list
+SUPPORTED_OPTIONS = settings.supported_options_list
 logger.info(f"Supported futures: {SUPPORTED_FUTURES}")
-
-# Supported options products (configurable via ENV)
-# Default: TXO (台指選擇權)
-SUPPORTED_OPTIONS = os.getenv("SUPPORTED_OPTIONS", "TXO").split(",")
-SUPPORTED_OPTIONS = [o.strip().upper() for o in SUPPORTED_OPTIONS if o.strip()]
 logger.info(f"Supported options: {SUPPORTED_OPTIONS}")
 
 
@@ -46,25 +40,19 @@ class OrderError(ShioajiError):
 
 def get_api_client(simulation: bool = True):
     logger.debug(f"Creating API client with simulation={simulation}")
-    
-    api_key = os.getenv("API_KEY")
-    secret_key = os.getenv("SECRET_KEY")
-    
-    if not api_key or not secret_key:
+
+    if not settings.validate_shioaji_credentials():
         logger.error("API_KEY or SECRET_KEY environment variable not set")
         raise LoginError("API_KEY or SECRET_KEY environment variable not set")
-    
+
     try:
         api = sj.Shioaji(simulation=simulation)
-        api.login(api_key=api_key, secret_key=secret_key)
+        api.login(api_key=settings.api_key, secret_key=settings.secret_key)
         logger.debug("API client logged in successfully")
-        
+
         # Activate CA certificate for real trading
         if not simulation:
-            ca_path = os.getenv("CA_PATH")
-            ca_password = os.getenv("CA_PASSWORD")
-            
-            if not ca_path or not ca_password:
+            if not settings.validate_ca_credentials():
                 logger.error("CA_PATH or CA_PASSWORD not set for real trading")
                 raise LoginError(
                     "Real trading requires CA certificate. "
@@ -81,8 +69,8 @@ def get_api_client(simulation: bool = True):
             logger.info(f"Activating CA certificate from {ca_path} for person_id={person_id}")
             
             result = api.activate_ca(
-                ca_path=ca_path,
-                ca_passwd=ca_password,
+                ca_path=settings.ca_path,
+                ca_passwd=settings.ca_password,
                 person_id=person_id,
             )
             logger.info(f"CA activation result: {result}")
