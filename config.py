@@ -47,6 +47,20 @@ class Settings(BaseSettings):
     supported_futures: str = "MXF,TXF"
     supported_options: str = "TXO"
 
+    # Trading Worker 連線設定
+    reconnect_delay: int = 5  # 重連間隔秒數
+    max_reconnect_attempts: int = 10  # 最大重連次數
+    queue_poll_timeout: int = 5  # 佇列輪詢超時秒數
+    health_check_interval: int = 300  # 健康檢查間隔（5 分鐘）
+    connection_logout_timeout: int = 3  # 登出超時秒數
+    max_request_retries: int = 3  # 請求最大重試次數
+    request_retry_delay: int = 1  # 請求重試間隔秒數
+
+    # 訂單狀態檢查設定
+    order_status_check_delay: int = 2  # 第一次狀態檢查前等待秒數
+    order_status_check_interval: int = 5  # 狀態檢查間隔秒數
+    order_status_max_retries: int = 120  # 最大狀態檢查次數（約 10 分鐘）
+
     @property
     def supported_futures_list(self) -> list[str]:
         """取得支援的期貨商品列表"""

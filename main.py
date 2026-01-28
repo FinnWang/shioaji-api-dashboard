@@ -95,10 +95,10 @@ app.add_middleware(
 )
 
 
-# Background task configuration
-ORDER_STATUS_CHECK_DELAY = 2  # seconds to wait before first check
-ORDER_STATUS_CHECK_INTERVAL = 5  # seconds between retry checks
-ORDER_STATUS_MAX_RETRIES = 120  # max number of status checks (~10 minutes total)
+# Background task configuration（從 config.py 讀取，支持環境變數覆蓋）
+ORDER_STATUS_CHECK_DELAY = settings.order_status_check_delay
+ORDER_STATUS_CHECK_INTERVAL = settings.order_status_check_interval
+ORDER_STATUS_MAX_RETRIES = settings.order_status_max_retries
 
 
 def _log_fill_status_change(order_id: int, fill_status: str, status_info: dict, deals: list):

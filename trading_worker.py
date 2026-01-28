@@ -55,14 +55,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Connection settings
-RECONNECT_DELAY = 5  # seconds between reconnection attempts
-MAX_RECONNECT_ATTEMPTS = 10
-QUEUE_POLL_TIMEOUT = 5  # seconds to wait for queue items
-HEALTH_CHECK_INTERVAL = 300  # 5 minutes - check connection health periodically
-CONNECTION_LOGOUT_TIMEOUT = 3  # seconds to wait for logout before giving up
-MAX_REQUEST_RETRIES = 3  # max retries for requests on connection errors
-REQUEST_RETRY_DELAY = 1  # seconds between request retries
+# Connection settings（從 config.py 讀取，支持環境變數覆蓋）
+RECONNECT_DELAY = settings.reconnect_delay
+MAX_RECONNECT_ATTEMPTS = settings.max_reconnect_attempts
+QUEUE_POLL_TIMEOUT = settings.queue_poll_timeout
+HEALTH_CHECK_INTERVAL = settings.health_check_interval
+CONNECTION_LOGOUT_TIMEOUT = settings.connection_logout_timeout
+MAX_REQUEST_RETRIES = settings.max_request_retries
+REQUEST_RETRY_DELAY = settings.request_retry_delay
 
 # 可重試的錯誤模式（統一管理，避免重複定義）
 RETRYABLE_ERROR_PATTERNS = [
