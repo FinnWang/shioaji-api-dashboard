@@ -655,6 +655,8 @@ class TradingWorker:
         symbol = params["symbol"]
         quantity = params["quantity"]
         action_str = params["action"]
+        price_type = params.get("price_type", "MKT")
+        price = params.get("price", 0.0)
 
         action = sj.constant.Action.Buy if action_str == "Buy" else sj.constant.Action.Sell
 
@@ -669,12 +671,22 @@ class TradingWorker:
             elif action == sj.constant.Action.Sell and current_position > 0:
                 quantity = quantity + current_position
 
+            # Set price type
+            if price_type == "LMT":
+                futures_price_type = sj.constant.FuturesPriceType.LMT
+                order_type = sj.constant.OrderType.ROD  # Use ROD for limit orders
+                order_price = float(price) if price else 0.0
+            else:  # MKT
+                futures_price_type = sj.constant.FuturesPriceType.MKT
+                order_type = sj.constant.OrderType.IOC  # Use IOC for market orders
+                order_price = 0.0
+
             order = api.Order(
                 action=action,
-                price=0.0,
+                price=order_price,
                 quantity=quantity,
-                price_type=sj.constant.FuturesPriceType.MKT,
-                order_type=sj.constant.OrderType.IOC,
+                price_type=futures_price_type,
+                order_type=order_type,
                 octype=sj.constant.FuturesOCType.Auto,
                 account=api.futopt_account,
             )
@@ -695,6 +707,8 @@ class TradingWorker:
                     "action": action_str,
                     "quantity": quantity,
                     "original_quantity": original_quantity,
+                    "price_type": price_type,
+                    "price": order_price,
                     "symbol": contract.symbol,
                     "code": contract.code,
                 },
@@ -712,6 +726,8 @@ class TradingWorker:
         params = request.params
         symbol = params["symbol"]
         position_direction = params["position_direction"]
+        price_type = params.get("price_type", "MKT")
+        price = params.get("price", 0.0)
 
         direction = (
             sj.constant.Action.Buy
@@ -737,12 +753,22 @@ class TradingWorker:
                     data={"message": "No position to exit", "order_id": None},
                 )
 
+            # Set price type
+            if price_type == "LMT":
+                futures_price_type = sj.constant.FuturesPriceType.LMT
+                order_type = sj.constant.OrderType.ROD  # Use ROD for limit orders
+                order_price = float(price) if price else 0.0
+            else:  # MKT
+                futures_price_type = sj.constant.FuturesPriceType.MKT
+                order_type = sj.constant.OrderType.IOC  # Use IOC for market orders
+                order_price = 0.0
+
             order = api.Order(
                 action=action,
-                price=0.0,
+                price=order_price,
                 quantity=quantity,
-                price_type=sj.constant.FuturesPriceType.MKT,
-                order_type=sj.constant.OrderType.IOC,
+                price_type=futures_price_type,
+                order_type=order_type,
                 octype=sj.constant.FuturesOCType.Auto,
                 account=api.futopt_account,
             )
@@ -762,6 +788,8 @@ class TradingWorker:
                     "ordno": getattr(result.order, "ordno", ""),
                     "action": action.value if hasattr(action, "value") else str(action),
                     "quantity": quantity,
+                    "price_type": price_type,
+                    "price": order_price,
                     "symbol": contract.symbol,
                     "code": contract.code,
                 },

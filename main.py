@@ -37,11 +37,23 @@ class OrderRequest(BaseModel):
     action: ACCEPT_ACTIONS
     quantity: int = Field(..., gt=0)
     symbol: str
+    price_type: str = Field(default="MKT", description="Price type: MKT (market) or LMT (limit)")
+    price: Optional[float] = Field(default=None, description="Price for limit orders")
 
     @model_validator(mode="after")
-    def validate_symbol(self):
+    def validate_order_params(self):
         # Symbol validation is now done via the trading worker
         # We'll validate during order processing instead
+        
+        # Validate price type
+        if self.price_type not in ["MKT", "LMT"]:
+            raise ValueError("price_type must be 'MKT' or 'LMT'")
+        
+        # Validate price for limit orders
+        if self.price_type == "LMT":
+            if self.price is None or self.price <= 0:
+                raise ValueError("price must be provided and > 0 for limit orders")
+        
         return self
 
 
@@ -544,6 +556,8 @@ async def create_order(
                 quantity=order_request.quantity,
                 action="Buy",
                 simulation=simulation,
+                price_type=order_request.price_type,
+                price=order_request.price,
             )
         elif order_request.action == "short_entry":
             response = queue_client.place_entry_order(
@@ -551,18 +565,24 @@ async def create_order(
                 quantity=order_request.quantity,
                 action="Sell",
                 simulation=simulation,
+                price_type=order_request.price_type,
+                price=order_request.price,
             )
         elif order_request.action == "long_exit":
             response = queue_client.place_exit_order(
                 symbol=order_request.symbol,
                 position_direction="Buy",
                 simulation=simulation,
+                price_type=order_request.price_type,
+                price=order_request.price,
             )
         elif order_request.action == "short_exit":
             response = queue_client.place_exit_order(
                 symbol=order_request.symbol,
                 position_direction="Sell",
                 simulation=simulation,
+                price_type=order_request.price_type,
+                price=order_request.price,
             )
             
         if response and not response.success:

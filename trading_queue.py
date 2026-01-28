@@ -203,12 +203,23 @@ class TradingQueueClient:
         quantity: int,
         action: str,
         simulation: bool = True,
+        price_type: str = "MKT",
+        price: Optional[float] = None,
     ) -> TradingResponse:
         """Place an entry order."""
+        params = {
+            "symbol": symbol, 
+            "quantity": quantity, 
+            "action": action,
+            "price_type": price_type,
+        }
+        if price is not None:
+            params["price"] = price
+            
         return self.submit_request(
             TradingOperation.PLACE_ENTRY_ORDER,
             simulation,
-            params={"symbol": symbol, "quantity": quantity, "action": action},
+            params=params,
         )
 
     def place_exit_order(
@@ -216,12 +227,22 @@ class TradingQueueClient:
         symbol: str,
         position_direction: str,
         simulation: bool = True,
+        price_type: str = "MKT",
+        price: Optional[float] = None,
     ) -> TradingResponse:
         """Place an exit order."""
+        params = {
+            "symbol": symbol, 
+            "position_direction": position_direction,
+            "price_type": price_type,
+        }
+        if price is not None:
+            params["price"] = price
+            
         return self.submit_request(
             TradingOperation.PLACE_EXIT_ORDER,
             simulation,
-            params={"symbol": symbol, "position_direction": position_direction},
+            params=params,
         )
 
     def check_order_status(

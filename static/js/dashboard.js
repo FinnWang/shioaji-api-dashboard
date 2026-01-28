@@ -15,6 +15,9 @@ let currentAccountTab = 'trades';
 let latencyHistory = [];
 const MAX_LATENCY_SAMPLES = 10;
 
+// Price type management
+let currentPriceType = 'MKT'; // Default to market order
+
 // URLs
 const baseUrl = window.location.origin;
 const webhookUrl = baseUrl + '/order';
@@ -635,6 +638,15 @@ let selectedSymbolInfo = null;
 function initTradingPanel() {
     updateTradingModeDisplay();
     loadTradingSymbols();
+    
+    // Auto-select TMFR1 (微台近月) as default
+    const symbolSelect = document.getElementById('tradingSymbol');
+    if (symbolSelect && symbolSelect.value === '') {
+        symbolSelect.value = 'TMFR1';
+        // Trigger symbol change to load quote data
+        onSymbolChange();
+    }
+    
     refreshPositions();
     refreshAccountSummary();
     loadRecentOrders();
@@ -922,6 +934,19 @@ async function placeOrder(action) {
     const quantity = parseInt(document.getElementById('orderQuantity').value) || 1;
     const simulationMode = document.getElementById('simulationMode').checked;
     
+    // Get price type and price
+    const priceType = document.querySelector('input[name="priceType"]:checked').value;
+    let price = 0;
+    
+    if (priceType === 'LMT') {
+        const orderPrice = document.getElementById('orderPrice').value;
+        if (!orderPrice || orderPrice <= 0) {
+            showOrderStatus('error', '限價單請輸入委託價格');
+            return;
+        }
+        price = parseFloat(orderPrice);
+    }
+    
     if (!authKey) {
         showOrderStatus('error', '請先輸入驗證金鑰');
         return;
@@ -935,7 +960,8 @@ async function placeOrder(action) {
     // Confirm for real trading
     if (!simulationMode) {
         const actionText = actionLabels[action] || action;
-        if (!confirm(`⚠️ 實盤交易確認\n\n動作: ${actionText}\n商品: ${symbol}\n口數: ${quantity}\n\n確定要執行嗎？`)) {
+        const priceText = priceType === 'MKT' ? '市價' : `限價 ${price}`;
+        if (!confirm(`⚠️ 實盤交易確認\n\n動作: ${actionText}\n商品: ${symbol}\n口數: ${quantity}\n價格: ${priceText}\n\n確定要執行嗎？`)) {
             return;
         }
     }
@@ -943,17 +969,25 @@ async function placeOrder(action) {
     showOrderStatus('pending', '委託處理中...');
     
     try {
+        const orderData = {
+            action: action,
+            symbol: symbol,
+            quantity: quantity,
+            price_type: priceType
+        };
+        
+        // Add price for limit orders
+        if (priceType === 'LMT') {
+            orderData.price = price;
+        }
+        
         const response = await fetch(`/order?simulation=${simulationMode}`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
                 'X-Auth-Key': authKey
             },
-            body: JSON.stringify({
-                action: action,
-                symbol: symbol,
-                quantity: quantity
-            })
+            body: JSON.stringify(orderData)
         });
         
         const result = await response.json();
@@ -1332,3 +1366,52 @@ switchTab = function(tab) {
         fetchUsage();
     }
 };
+
+// Price type management functions
+function onPriceTypeChange() {
+    const priceType = document.querySelector('input[name="priceType"]:checked').value;
+    const priceInputGroup = document.getElementById('priceInputGroup');
+    
+    currentPriceType = priceType;
+    
+    if (priceType === 'LMT') {
+        priceInputGroup.style.display = 'block';
+        // Auto-fill with current price if available
+        const currentPrice = document.getElementById('currentPrice').textContent;
+        if (currentPrice && currentPrice !== '--') {
+            document.getElementById('orderPrice').value = currentPrice.replace(/,/g, '');
+        }
+    } else {
+        priceInputGroup.style.display = 'none';
+    }
+}
+
+function setOrderPrice(type) {
+    const orderPriceInput = document.getElementById('orderPrice');
+    let price = 0;
+    
+    switch (type) {
+        case 'buy':
+            const buyPrice = document.getElementById('buyPrice').textContent;
+            if (buyPrice && buyPrice !== '--') {
+                price = buyPrice.replace(/,/g, '');
+            }
+            break;
+        case 'sell':
+            const sellPrice = document.getElementById('sellPrice').textContent;
+            if (sellPrice && sellPrice !== '--') {
+                price = sellPrice.replace(/,/g, '');
+            }
+            break;
+        case 'current':
+            const currentPrice = document.getElementById('currentPrice').textContent;
+            if (currentPrice && currentPrice !== '--') {
+                price = currentPrice.replace(/,/g, '');
+            }
+            break;
+    }
+    
+    if (price > 0) {
+        orderPriceInput.value = price;
+    }
+}

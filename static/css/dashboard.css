@@ -665,6 +665,109 @@ td { vertical-align: middle; }
     color: #fff;
 }
 
+/* Price Type Selector */
+.price-type-selector {
+    margin-bottom: 1rem;
+}
+
+.radio-group {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.radio-option {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.2);
+    transition: all 0.2s;
+    flex: 1;
+}
+
+.radio-option:hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.radio-option input[type="radio"] {
+    margin: 0;
+    accent-color: #00d9ff;
+}
+
+.radio-option input[type="radio"]:checked + .radio-label {
+    color: #00d9ff;
+    font-weight: 600;
+}
+
+.radio-label {
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: #e4e4e7;
+}
+
+.radio-desc {
+    font-size: 0.75rem;
+    color: #a1a1aa;
+    margin-left: auto;
+}
+
+.price-input {
+    margin-top: 1rem;
+}
+
+.price-input label {
+    font-size: 0.8rem;
+    color: #a1a1aa;
+    margin-bottom: 0.5rem;
+}
+
+.price-input-controls {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.price-input-controls input {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 10px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #fff;
+    font-size: 1rem;
+}
+
+.price-input-controls input:focus {
+    outline: none;
+    border-color: #00d9ff;
+}
+
+.price-buttons {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.price-buttons button {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.75rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #a1a1aa;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.price-buttons button:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
 /* Quote Display */
 .quote-display {
     background: rgba(0, 0, 0, 0.3);

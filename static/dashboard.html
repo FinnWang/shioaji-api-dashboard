@@ -60,7 +60,7 @@
                             <select id="tradingSymbol" onchange="onSymbolChange()">
                                 <option value="">-- 選擇商品 --</option>
                                 <optgroup label="微型台指 (TMF)">
-                                    <option value="TMFR1">TMFR1 - 微台近月</option>
+                                    <option value="TMFR1" selected>TMFR1 - 微台近月</option>
                                 </optgroup>
                                 <optgroup label="小台指 (MXF)">
                                     <option value="MXFR1">MXFR1 - 小台近月</option>
@@ -125,6 +125,36 @@
                             <button onclick="setQty(2)">2</button>
                             <button onclick="setQty(5)">5</button>
                             <button onclick="setQty(10)">10</button>
+                        </div>
+                    </div>
+                    
+                    <!-- Price Type Selection -->
+                    <div class="form-group">
+                        <label>委託類型</label>
+                        <div class="price-type-selector">
+                            <div class="radio-group">
+                                <label class="radio-option">
+                                    <input type="radio" name="priceType" value="MKT" checked onchange="onPriceTypeChange()">
+                                    <span class="radio-label">市價單</span>
+                                    <span class="radio-desc">立即成交</span>
+                                </label>
+                                <label class="radio-option">
+                                    <input type="radio" name="priceType" value="LMT" onchange="onPriceTypeChange()">
+                                    <span class="radio-label">限價單</span>
+                                    <span class="radio-desc">指定價格</span>
+                                </label>
+                            </div>
+                            <div class="price-input" id="priceInputGroup" style="display: none;">
+                                <label>委託價格</label>
+                                <div class="price-input-controls">
+                                    <input type="number" id="orderPrice" step="1" min="0" placeholder="輸入價格">
+                                    <div class="price-buttons">
+                                        <button type="button" onclick="setOrderPrice('buy')" title="設為買價">買價</button>
+                                        <button type="button" onclick="setOrderPrice('sell')" title="設為賣價">賣價</button>
+                                        <button type="button" onclick="setOrderPrice('current')" title="設為現價">現價</button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     
@@ -753,6 +783,6 @@ if (strategy.position_size < 0)
     
     <!-- Cache bust: bump version when files change -->
     <script src="/static/js/dateUtils.js?v=1"></script>
-    <script src="/static/js/dashboard.js?v=7"></script>
+    <script src="/static/js/dashboard.js?v=8"></script>
 </body>
 </html>
