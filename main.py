@@ -101,6 +101,39 @@ ORDER_STATUS_CHECK_INTERVAL = 5  # seconds between retry checks
 ORDER_STATUS_MAX_RETRIES = 120  # max number of status checks (~10 minutes total)
 
 
+def _log_fill_status_change(order_id: int, fill_status: str, status_info: dict, deals: list):
+    """記錄訂單成交狀態變更的日誌（輔助函數）"""
+    if fill_status == "Filled":
+        logger.info(
+            f"[BG] ✓ Order {order_id} FILLED: "
+            f"qty={status_info.get('deal_quantity')}, "
+            f"avg_price={status_info.get('fill_avg_price')}, "
+            f"deals={len(deals)}"
+        )
+    elif fill_status == "PartFilled":
+        logger.info(
+            f"[BG] ~ Order {order_id} PARTIAL: "
+            f"filled={status_info.get('deal_quantity')}/{status_info.get('order_quantity')}, "
+            f"avg_price={status_info.get('fill_avg_price')}"
+        )
+    elif fill_status == "Cancelled":
+        logger.info(
+            f"[BG] ✗ Order {order_id} CANCELLED: "
+            f"cancel_qty={status_info.get('cancel_quantity')}, "
+            f"msg={status_info.get('msg')}"
+        )
+    elif fill_status == "Inactive":
+        logger.info(f"[BG] ✗ Order {order_id} INACTIVE (expired/rejected): msg={status_info.get('msg')}")
+    elif fill_status == "Failed":
+        logger.error(
+            f"[BG] ✗ Order {order_id} FAILED: "
+            f"msg={status_info.get('msg') or status_info.get('error')}, "
+            f"status_code={status_info.get('status_code')}"
+        )
+    elif OrderStatusMapper.map_fill_status(fill_status) == "unknown":
+        logger.warning(f"[BG] Order {order_id} unknown status: {fill_status}")
+
+
 def verify_order_fill(
     order_id: int,
     trade_order_id: str,
@@ -265,32 +298,7 @@ def verify_order_fill(
                     logger.error(f"[BG] Error checking order {order_id}: {status_info.get('error')}")
                     safe_db_commit()
                 elif safe_db_commit():
-                    # 記錄狀態變更日誌
-                    if fill_status == "Filled":
-                        logger.info(
-                            f"[BG] ✓ Order {order_id} FILLED: "
-                            f"qty={status_info.get('deal_quantity')}, "
-                            f"avg_price={status_info.get('fill_avg_price')}, "
-                            f"deals={len(deals)}"
-                        )
-                    elif fill_status == "PartFilled":
-                        logger.info(
-                            f"[BG] ~ Order {order_id} PARTIAL: "
-                            f"filled={status_info.get('deal_quantity')}/{status_info.get('order_quantity')}, "
-                            f"avg_price={status_info.get('fill_avg_price')}"
-                        )
-                    elif fill_status == "Cancelled":
-                        logger.info(
-                            f"[BG] ✗ Order {order_id} CANCELLED: "
-                            f"cancel_qty={status_info.get('cancel_quantity')}, "
-                            f"msg={status_info.get('msg')}"
-                        )
-                    elif fill_status == "Inactive":
-                        logger.info(f"[BG] ✗ Order {order_id} INACTIVE (expired/rejected): msg={status_info.get('msg')}")
-                    elif fill_status == "Failed":
-                        logger.error(f"[BG] ✗ Order {order_id} FAILED: {order_record.error_message}, status_code={status_info.get('status_code')}")
-                    elif OrderStatusMapper.map_fill_status(fill_status) == "unknown":
-                        logger.warning(f"[BG] Order {order_id} unknown status: {fill_status}")
+                    _log_fill_status_change(order_id, fill_status, status_info, deals)
 
                 # 最終狀態時停止輪詢
                 if OrderStatusMapper.is_final_status(fill_status):
