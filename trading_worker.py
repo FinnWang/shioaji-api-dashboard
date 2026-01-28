@@ -426,6 +426,23 @@ class TradingWorker:
                     },
                 )
 
+            elif operation == TradingOperation.GET_SNAPSHOT.value:
+                from trading import get_snapshot
+                symbol = params["symbol"]
+                contract = get_contract_from_symbol(api, symbol)
+                snapshot = get_snapshot(api, contract)
+                if snapshot is None:
+                    return TradingResponse(
+                        request_id=request.request_id,
+                        success=False,
+                        error=f"No snapshot data available for {symbol}",
+                    )
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data=snapshot,
+                )
+
             elif operation == TradingOperation.GET_CONTRACT_CODES.value:
                 codes = get_valid_contract_codes(api)
                 return TradingResponse(

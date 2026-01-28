@@ -27,6 +27,7 @@ class TradingOperation(str, Enum):
     """Supported trading operations."""
     GET_SYMBOLS = "get_symbols"
     GET_SYMBOL_INFO = "get_symbol_info"
+    GET_SNAPSHOT = "get_snapshot"
     GET_CONTRACT_CODES = "get_contract_codes"
     GET_POSITIONS = "get_positions"
     GET_FUTURES_OVERVIEW = "get_futures_overview"
@@ -256,6 +257,14 @@ class TradingQueueClient:
     def get_usage(self, simulation: bool = True) -> TradingResponse:
         """Get API usage information (連線數、流量)."""
         return self.submit_request(TradingOperation.GET_USAGE, simulation)
+
+    def get_snapshot(self, symbol: str, simulation: bool = True) -> TradingResponse:
+        """Get real-time snapshot quote for a symbol (即時報價)."""
+        return self.submit_request(
+            TradingOperation.GET_SNAPSHOT,
+            simulation,
+            params={"symbol": symbol},
+        )
 
 
 # Singleton instance for FastAPI workers

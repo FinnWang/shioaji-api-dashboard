@@ -41,9 +41,15 @@
                 <div class="order-panel">
                     <div class="panel-header">
                         <h2>🚀 快速下單</h2>
-                        <div class="trading-mode-badge" id="tradingModeBadge">
-                            <span class="mode-dot simulation"></span>
-                            <span id="tradingModeText">模擬模式</span>
+                        <div class="header-badges">
+                            <div class="trading-mode-badge" id="tradingModeBadge">
+                                <span class="mode-dot simulation"></span>
+                                <span id="tradingModeText">模擬模式</span>
+                            </div>
+                            <div class="latency-indicator" id="latencyIndicator">
+                                <span class="latency-dot" id="latencyDot"></span>
+                                <span id="latencyValue">--</span>
+                            </div>
                         </div>
                     </div>
                     
@@ -69,9 +75,26 @@
                     
                     <!-- Quote Display -->
                     <div class="quote-display" id="quoteDisplay">
-                        <div class="quote-price">
-                            <span class="price-label">現價</span>
-                            <span class="price-value" id="currentPrice">--</span>
+                        <div class="quote-header">
+                            <div class="quote-price">
+                                <span class="price-label">現價</span>
+                                <span class="price-value" id="currentPrice">--</span>
+                            </div>
+                            <button class="refresh-btn" onclick="refreshSnapshot()" title="刷新即時報價">🔄 刷新報價</button>
+                        </div>
+                        <div class="quote-realtime">
+                            <div class="quote-item">
+                                <span class="label">買價</span>
+                                <span class="value up" id="buyPrice">--</span>
+                            </div>
+                            <div class="quote-item">
+                                <span class="label">賣價</span>
+                                <span class="value down" id="sellPrice">--</span>
+                            </div>
+                            <div class="quote-item">
+                                <span class="label">漲跌</span>
+                                <span class="value" id="priceChange">--</span>
+                            </div>
                         </div>
                         <div class="quote-info">
                             <div class="quote-item">
@@ -729,6 +752,7 @@ if (strategy.position_size < 0)
     </div>
     
     <!-- Cache bust: bump version when files change -->
-    <script src="/static/js/dashboard.js?v=5"></script>
+    <script src="/static/js/dateUtils.js?v=1"></script>
+    <script src="/static/js/dashboard.js?v=7"></script>
 </body>
 </html>

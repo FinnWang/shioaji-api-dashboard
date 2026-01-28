@@ -11,6 +11,10 @@ let profitLoss = {};
 let currentTab = 'orders';
 let currentAccountTab = 'trades';
 
+// Network latency monitoring
+let latencyHistory = [];
+const MAX_LATENCY_SAMPLES = 10;
+
 // URLs
 const baseUrl = window.location.origin;
 const webhookUrl = baseUrl + '/order';
@@ -207,8 +211,7 @@ function renderOrdersTable() {
     </tr></thead><tbody>`;
     
     for (const order of orders) {
-        const d = new Date(order.created_at);
-        const date = `${d.getMonth()+1}/${d.getDate()} ${d.getHours().toString().padStart(2,'0')}:${d.getMinutes().toString().padStart(2,'0')}`;
+        const date = formatToTimezone(order.created_at);
         
         const statusClass = order.status === 'filled' ? 'status-success' : 
                            order.status === 'failed' ? 'status-failed' :
@@ -739,29 +742,165 @@ async function onSymbolChange() {
     const simulationMode = document.getElementById('simulationMode').checked;
     
     try {
+        // Get basic symbol info (reference, limit_up, limit_down)
         const response = await fetch(`/symbols/${symbol}?simulation=${simulationMode}`);
         if (response.ok) {
             selectedSymbolInfo = await response.json();
             updateQuoteDisplay(selectedSymbolInfo);
         }
+        
+        // Get real-time snapshot (即時報價)
+        await fetchSnapshot(symbol, simulationMode);
     } catch (error) {
         console.error('Error fetching symbol info:', error);
     }
 }
 
+// Fetch real-time snapshot quote
+async function fetchSnapshot(symbol, simulationMode) {
+    const startTime = performance.now();
+    
+    try {
+        const response = await fetch(`/symbols/${symbol}/snapshot?simulation=${simulationMode}`);
+        const endTime = performance.now();
+        const latency = Math.round(endTime - startTime);
+        
+        // Update latency display
+        updateLatencyDisplay(latency);
+        
+        console.log('Snapshot response status:', response.status, `(${latency}ms)`);
+        
+        if (response.ok) {
+            const snapshot = await response.json();
+            console.log('Snapshot data:', snapshot);
+            updateSnapshotDisplay(snapshot);
+        } else {
+            const errorData = await response.json().catch(() => ({}));
+            console.warn('Snapshot API error:', response.status, errorData);
+            // 模擬環境可能沒有即時報價，顯示提示
+            if (simulationMode) {
+                console.log('Simulation mode may not have real-time quotes');
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching snapshot:', error);
+        updateLatencyDisplay(null, true); // Show error state
+    }
+}
+
+// Refresh snapshot button handler
+async function refreshSnapshot() {
+    const symbol = document.getElementById('tradingSymbol').value;
+    const simulationMode = document.getElementById('simulationMode').checked;
+    
+    if (!symbol) return;
+    
+    const btn = document.querySelector('.refresh-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '更新中...';
+    }
+    
+    await fetchSnapshot(symbol, simulationMode);
+    
+    if (btn) {
+        btn.disabled = false;
+        btn.textContent = '🔄 刷新報價';
+    }
+}
+
 function updateQuoteDisplay(info) {
-    document.getElementById('currentPrice').textContent = info.reference?.toLocaleString() || '--';
     document.getElementById('limitUp').textContent = info.limit_up?.toLocaleString() || '--';
     document.getElementById('limitDown').textContent = info.limit_down?.toLocaleString() || '--';
     document.getElementById('refPrice').textContent = info.reference?.toLocaleString() || '--';
+    // currentPrice will be updated by snapshot
+    if (!document.getElementById('currentPrice').dataset.hasSnapshot) {
+        document.getElementById('currentPrice').textContent = info.reference?.toLocaleString() || '--';
+    }
+}
+
+function updateSnapshotDisplay(snapshot) {
+    const currentPriceEl = document.getElementById('currentPrice');
+    currentPriceEl.textContent = snapshot.close?.toLocaleString() || '--';
+    currentPriceEl.dataset.hasSnapshot = 'true';
+    
+    // Update buy/sell prices if elements exist
+    const buyPriceEl = document.getElementById('buyPrice');
+    const sellPriceEl = document.getElementById('sellPrice');
+    const changeEl = document.getElementById('priceChange');
+    
+    if (buyPriceEl) buyPriceEl.textContent = snapshot.buy_price?.toLocaleString() || '--';
+    if (sellPriceEl) sellPriceEl.textContent = snapshot.sell_price?.toLocaleString() || '--';
+    
+    if (changeEl) {
+        const change = snapshot.change_price || 0;
+        const rate = snapshot.change_rate || 0;
+        const sign = change >= 0 ? '+' : '';
+        changeEl.textContent = `${sign}${change.toLocaleString()} (${sign}${rate.toFixed(2)}%)`;
+        changeEl.style.color = change >= 0 ? '#22c55e' : '#ef4444';
+    }
 }
 
 function resetQuoteDisplay() {
     document.getElementById('currentPrice').textContent = '--';
+    document.getElementById('currentPrice').dataset.hasSnapshot = '';
     document.getElementById('limitUp').textContent = '--';
     document.getElementById('limitDown').textContent = '--';
     document.getElementById('refPrice').textContent = '--';
+    
+    const buyPriceEl = document.getElementById('buyPrice');
+    const sellPriceEl = document.getElementById('sellPrice');
+    const changeEl = document.getElementById('priceChange');
+    
+    if (buyPriceEl) buyPriceEl.textContent = '--';
+    if (sellPriceEl) sellPriceEl.textContent = '--';
+    if (changeEl) {
+        changeEl.textContent = '--';
+        changeEl.style.color = '';
+    }
+    
     selectedSymbolInfo = null;
+}
+
+// Network latency monitoring
+function updateLatencyDisplay(latency, isError = false) {
+    const indicator = document.getElementById('latencyIndicator');
+    const value = document.getElementById('latencyValue');
+    const dot = document.getElementById('latencyDot');
+    
+    if (!indicator || !value || !dot) return;
+    
+    if (isError) {
+        indicator.className = 'latency-indicator error';
+        value.textContent = 'Error';
+        dot.className = 'latency-dot error';
+        return;
+    }
+    
+    // Add to history for averaging
+    latencyHistory.push(latency);
+    if (latencyHistory.length > MAX_LATENCY_SAMPLES) {
+        latencyHistory.shift();
+    }
+    
+    // Calculate average
+    const avgLatency = Math.round(
+        latencyHistory.reduce((a, b) => a + b, 0) / latencyHistory.length
+    );
+    
+    value.textContent = `${avgLatency}ms`;
+    
+    // Update color based on latency
+    if (avgLatency < 100) {
+        indicator.className = 'latency-indicator good';
+        dot.className = 'latency-dot good';
+    } else if (avgLatency < 500) {
+        indicator.className = 'latency-indicator warning';
+        dot.className = 'latency-dot warning';
+    } else {
+        indicator.className = 'latency-indicator bad';
+        dot.className = 'latency-dot bad';
+    }
 }
 
 // Quantity controls

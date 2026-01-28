@@ -430,6 +430,42 @@ async def get_symbol_details(
         raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
 
 
+@app.get("/symbols/{symbol}/snapshot")
+async def get_symbol_snapshot(
+    symbol: str,
+    simulation: bool = Query(True, description="Use simulation mode"),
+):
+    """
+    Get real-time snapshot quote for a symbol (即時報價).
+    
+    Returns current market data including:
+    - close: 最新成交價
+    - open: 開盤價
+    - high: 最高價
+    - low: 最低價
+    - buy_price: 買價
+    - sell_price: 賣價
+    - change_price: 漲跌
+    - change_rate: 漲跌幅 (%)
+    - volume: 單量
+    - total_volume: 總量
+    
+    Note: Subject to API rate limits (5秒上限 50次)
+    """
+    try:
+        queue_client = get_queue_client()
+        response = queue_client.get_snapshot(symbol=symbol, simulation=simulation)
+        
+        if not response.success:
+            if "not found" in (response.error or "").lower():
+                raise HTTPException(status_code=404, detail=response.error)
+            raise HTTPException(status_code=503, detail=response.error)
+        
+        return response.data
+    except (TimeoutError, ConnectionError) as e:
+        raise HTTPException(status_code=503, detail=f"Trading service unavailable: {e}")
+
+
 @app.get("/contracts")
 async def list_contracts(
     simulation: bool = Query(True, description="Use simulation mode"),

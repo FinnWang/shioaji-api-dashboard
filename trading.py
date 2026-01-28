@@ -570,3 +570,68 @@ def get_margin(api: sj.Shioaji) -> dict:
     except Exception as e:
         logger.error(f"Error fetching margin: {e}")
         raise OrderError(f"Failed to fetch margin: {e}") from e
+
+
+def get_snapshot(api: sj.Shioaji, contract: Contract) -> dict | None:
+    """
+    Get real-time snapshot quote for a contract.
+    
+    Uses api.snapshots() to get current market data including:
+    - close: 最新成交價
+    - open: 開盤價
+    - high: 最高價
+    - low: 最低價
+    - buy_price: 買價
+    - sell_price: 賣價
+    - change_price: 漲跌
+    - change_rate: 漲跌幅 (%)
+    - volume: 單量
+    - total_volume: 總量
+    
+    Ref: https://sinotrade.github.io/zh/tutor/market_data/snapshot/
+    
+    Args:
+        api: Shioaji API client
+        contract: Contract to get snapshot for
+        
+    Returns:
+        dict with snapshot data, or None if unavailable
+    """
+    try:
+        logger.debug(f"Getting snapshot for {contract.symbol}")
+        snapshots = api.snapshots([contract])
+        
+        if not snapshots:
+            logger.warning(f"No snapshot data for {contract.symbol}")
+            return None
+        
+        snap = snapshots[0]
+        
+        # Convert nanosecond timestamp to milliseconds
+        ts_ms = getattr(snap, 'ts', 0) // 1_000_000 if getattr(snap, 'ts', 0) else 0
+        
+        result = {
+            "symbol": contract.symbol,
+            "close": getattr(snap, 'close', 0.0),
+            "open": getattr(snap, 'open', 0.0),
+            "high": getattr(snap, 'high', 0.0),
+            "low": getattr(snap, 'low', 0.0),
+            "buy_price": getattr(snap, 'buy_price', 0.0),
+            "sell_price": getattr(snap, 'sell_price', 0.0),
+            "buy_volume": getattr(snap, 'buy_volume', 0),
+            "sell_volume": getattr(snap, 'sell_volume', 0),
+            "volume": getattr(snap, 'volume', 0),
+            "total_volume": getattr(snap, 'total_volume', 0),
+            "change_price": getattr(snap, 'change_price', 0.0),
+            "change_rate": getattr(snap, 'change_rate', 0.0),
+            "amount": getattr(snap, 'amount', 0.0),
+            "total_amount": getattr(snap, 'total_amount', 0.0),
+            "ts": ts_ms,
+        }
+        
+        logger.debug(f"Snapshot for {contract.symbol}: close={result['close']}, buy={result['buy_price']}, sell={result['sell_price']}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"Error getting snapshot for {contract.symbol}: {e}")
+        return None
