@@ -1,6 +1,6 @@
 from contextlib import asynccontextmanager
 import csv
-from datetime import datetime
+from datetime import datetime, timezone
 import io
 import logging
 import os
@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Header, Qu
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
@@ -58,6 +58,8 @@ class OrderRequest(BaseModel):
 
 
 class OrderHistoryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: int
     symbol: str
     code: Optional[str] = None
@@ -72,9 +74,6 @@ class OrderHistoryResponse(BaseModel):
     fill_quantity: Optional[int] = None
     fill_price: Optional[float] = None
     updated_at: Optional[datetime] = None
-
-    class Config:
-        from_attributes = True
 
 
 @asynccontextmanager
@@ -250,7 +249,7 @@ def verify_order_fill(
                 order_record.fill_quantity = status_info.get("deal_quantity", 0)
                 order_record.fill_price = status_info.get("fill_avg_price")
                 order_record.cancel_quantity = status_info.get("cancel_quantity", 0)
-                order_record.updated_at = datetime.utcnow()
+                order_record.updated_at = datetime.now(timezone.utc)
                 
                 # Update main status based on fill status
                 if fill_status == "Filled":
@@ -803,7 +802,7 @@ async def recheck_order_status(
         order_record.fill_quantity = deal_quantity
         order_record.fill_price = fill_avg_price
         order_record.cancel_quantity = status_info.get("cancel_quantity", 0)
-        order_record.updated_at = datetime.utcnow()
+        order_record.updated_at = datetime.now(timezone.utc)
         
         # Update main status based on fill status
         if fill_status == "Filled":

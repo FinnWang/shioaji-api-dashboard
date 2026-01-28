@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, DateTime, Float, Enum
 import enum
 
@@ -33,7 +33,7 @@ class OrderHistory(Base):
     status = Column(String, nullable=False)
     order_result = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     
     # Order tracking fields (from Shioaji Trade object)
     order_id = Column(String, nullable=True, index=True)  # Trade.order.id
