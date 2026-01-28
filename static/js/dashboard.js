@@ -639,10 +639,10 @@ function initTradingPanel() {
     updateTradingModeDisplay();
     loadTradingSymbols();
     
-    // Auto-select TMFR1 (微台近月) as default
+    // Auto-select MXFR1 (微型台指期貨近月) as default
     const symbolSelect = document.getElementById('tradingSymbol');
     if (symbolSelect && symbolSelect.value === '') {
-        symbolSelect.value = 'TMFR1';
+        symbolSelect.value = 'MXFR1';
         // Trigger symbol change to load quote data
         onSymbolChange();
     }
@@ -722,12 +722,12 @@ async function loadTradingSymbols() {
         if (txfGroup.children.length > 0) select.appendChild(txfGroup);
         if (otherGroup.children.length > 0) select.appendChild(otherGroup);
         
-        // Select first TMF symbol by default (微型台指)
-        if (tmfGroup.children.length > 0) {
-            select.value = tmfGroup.children[0].value;
-            onSymbolChange();
-        } else if (mxfGroup.children.length > 0) {
+        // Select first MXF symbol by default (微型台指期貨)
+        if (mxfGroup.children.length > 0) {
             select.value = mxfGroup.children[0].value;
+            onSymbolChange();
+        } else if (tmfGroup.children.length > 0) {
+            select.value = tmfGroup.children[0].value;
             onSymbolChange();
         }
         
