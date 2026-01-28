@@ -64,6 +64,21 @@ CONNECTION_LOGOUT_TIMEOUT = 3  # seconds to wait for logout before giving up
 MAX_REQUEST_RETRIES = 3  # max retries for requests on connection errors
 REQUEST_RETRY_DELAY = 1  # seconds between request retries
 
+# 可重試的錯誤模式（統一管理，避免重複定義）
+RETRYABLE_ERROR_PATTERNS = [
+    "token is expired",
+    "token expired",
+    "tokenerror",
+    "connection error",
+    "connection refused",
+    "connection reset",
+    "401",
+    "status_code': 401",
+    "statuscode: 401",
+    "session down",
+    "not ready",
+]
+
 
 class TradingWorker:
     """
@@ -105,6 +120,50 @@ class TradingWorker:
         """Handle shutdown signals gracefully."""
         logger.info(f"Received signal {signum}, initiating shutdown...")
         self.running = False
+
+    @staticmethod
+    def _is_retryable_error(error_str: str) -> bool:
+        """
+        檢查錯誤是否為可重試的連線錯誤
+
+        Args:
+            error_str: 錯誤訊息字串
+
+        Returns:
+            True 如果是可重試的錯誤
+        """
+        error_lower = error_str.lower()
+        return any(pattern in error_lower for pattern in RETRYABLE_ERROR_PATTERNS)
+
+    @staticmethod
+    def _get_mode_str(simulation: bool) -> str:
+        """取得連線模式字串"""
+        return "simulation" if simulation else "real"
+
+    @staticmethod
+    def _parse_price_type(price_type: str, price: float = 0.0) -> tuple:
+        """
+        將訂單價格類型轉換為 Shioaji 常數
+
+        Args:
+            price_type: 價格類型字串 ("MKT" 或 "LMT")
+            price: 限價單價格
+
+        Returns:
+            (futures_price_type, order_type, order_price) 元組
+        """
+        if price_type == "LMT":
+            return (
+                sj.constant.FuturesPriceType.LMT,
+                sj.constant.OrderType.ROD,  # 限價單使用 ROD
+                float(price) if price else 0.0,
+            )
+        else:  # MKT
+            return (
+                sj.constant.FuturesPriceType.MKT,
+                sj.constant.OrderType.IOC,  # 市價單使用 IOC
+                0.0,
+            )
 
     def _setup_event_callbacks(self, api: sj.Shioaji, simulation: bool):
         """
@@ -346,17 +405,8 @@ class TradingWorker:
             
             # Check if it's a connection error that should be retried
             if not response.success and response.error:
-                error_lower = response.error.lower()
-                is_retryable = any(pattern in error_lower for pattern in [
-                    "token is expired",
-                    "token expired",
-                    "tokenerror",
-                    "connection error",
-                    "401",
-                    "session down",
-                    "not ready",
-                ])
-                
+                is_retryable = self._is_retryable_error(response.error)
+
                 if is_retryable and attempt < MAX_REQUEST_RETRIES:
                     logger.warning(
                         f"Retryable error on attempt {attempt}/{MAX_REQUEST_RETRIES}: {response.error}"
@@ -610,22 +660,9 @@ class TradingWorker:
 
         except Exception as e:
             error_str = str(e)
-            # Check for common connection-related error patterns in exception message
-            connection_error_patterns = [
-                "token is expired",
-                "token expired", 
-                "status_code': 401",
-                "statuscode: 401",
-                "not ready",
-                "session down",
-                "connection refused",
-                "connection reset",
-            ]
-            is_connection_error = any(
-                pattern in error_str.lower() 
-                for pattern in connection_error_patterns
-            )
-            
+            # 使用統一的錯誤模式檢查
+            is_connection_error = self._is_retryable_error(error_str)
+
             if is_connection_error:
                 logger.error(f"[Attempt {attempt}] Detected connection error: {e}, invalidating connection...")
                 self._invalidate_connection(simulation)
@@ -664,15 +701,8 @@ class TradingWorker:
             elif action == sj.constant.Action.Sell and current_position > 0:
                 quantity = quantity + current_position
 
-            # Set price type
-            if price_type == "LMT":
-                futures_price_type = sj.constant.FuturesPriceType.LMT
-                order_type = sj.constant.OrderType.ROD  # Use ROD for limit orders
-                order_price = float(price) if price else 0.0
-            else:  # MKT
-                futures_price_type = sj.constant.FuturesPriceType.MKT
-                order_type = sj.constant.OrderType.IOC  # Use IOC for market orders
-                order_price = 0.0
+            # 使用統一的價格類型轉換
+            futures_price_type, order_type, order_price = self._parse_price_type(price_type, price)
 
             order = api.Order(
                 action=action,
@@ -746,15 +776,8 @@ class TradingWorker:
                     data={"message": "No position to exit", "order_id": None},
                 )
 
-            # Set price type
-            if price_type == "LMT":
-                futures_price_type = sj.constant.FuturesPriceType.LMT
-                order_type = sj.constant.OrderType.ROD  # Use ROD for limit orders
-                order_price = float(price) if price else 0.0
-            else:  # MKT
-                futures_price_type = sj.constant.FuturesPriceType.MKT
-                order_type = sj.constant.OrderType.IOC  # Use IOC for market orders
-                order_price = 0.0
+            # 使用統一的價格類型轉換
+            futures_price_type, order_type, order_price = self._parse_price_type(price_type, price)
 
             order = api.Order(
                 action=action,

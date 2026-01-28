@@ -575,3 +575,85 @@ class TestAccountOperations:
         assert response.success is True
         assert len(response.data["trades"]) == 1
         assert response.data["trades"][0]["code"] == "MXFJ5"
+
+
+class TestHelperMethods:
+    """輔助方法測試"""
+
+    def test_is_retryable_error_token_expired應該返回True(self):
+        """測試: token expired 錯誤應該是可重試的"""
+        from trading_worker import TradingWorker
+
+        assert TradingWorker._is_retryable_error("token is expired") is True
+        assert TradingWorker._is_retryable_error("Token Expired error") is True
+        assert TradingWorker._is_retryable_error("TokenError occurred") is True
+
+    def test_is_retryable_error_connection_errors應該返回True(self):
+        """測試: 連線錯誤應該是可重試的"""
+        from trading_worker import TradingWorker
+
+        assert TradingWorker._is_retryable_error("connection error") is True
+        assert TradingWorker._is_retryable_error("Connection refused") is True
+        assert TradingWorker._is_retryable_error("connection reset by peer") is True
+        assert TradingWorker._is_retryable_error("Session down") is True
+        assert TradingWorker._is_retryable_error("API not ready") is True
+
+    def test_is_retryable_error_401應該返回True(self):
+        """測試: 401 錯誤應該是可重試的"""
+        from trading_worker import TradingWorker
+
+        assert TradingWorker._is_retryable_error("status_code': 401") is True
+        assert TradingWorker._is_retryable_error("statuscode: 401") is True
+        assert TradingWorker._is_retryable_error("HTTP 401 Unauthorized") is True
+
+    def test_is_retryable_error_一般錯誤應該返回False(self):
+        """測試: 一般錯誤不應該是可重試的"""
+        from trading_worker import TradingWorker
+
+        assert TradingWorker._is_retryable_error("Invalid symbol") is False
+        assert TradingWorker._is_retryable_error("Insufficient funds") is False
+        assert TradingWorker._is_retryable_error("Unknown error") is False
+
+    def test_get_mode_str_simulation應該返回simulation(self):
+        """測試: simulation=True 應該返回 'simulation'"""
+        from trading_worker import TradingWorker
+
+        assert TradingWorker._get_mode_str(True) == "simulation"
+
+    def test_get_mode_str_real應該返回real(self):
+        """測試: simulation=False 應該返回 'real'"""
+        from trading_worker import TradingWorker
+
+        assert TradingWorker._get_mode_str(False) == "real"
+
+    def test_parse_price_type_LMT應該返回正確參數(self):
+        """測試: LMT 價格類型應該返回正確的 Shioaji 常數"""
+        import shioaji as sj
+        from trading_worker import TradingWorker
+
+        price_type, order_type, price = TradingWorker._parse_price_type("LMT", 21000.0)
+
+        assert price_type == sj.constant.FuturesPriceType.LMT
+        assert order_type == sj.constant.OrderType.ROD
+        assert price == 21000.0
+
+    def test_parse_price_type_MKT應該返回正確參數(self):
+        """測試: MKT 價格類型應該返回正確的 Shioaji 常數"""
+        import shioaji as sj
+        from trading_worker import TradingWorker
+
+        price_type, order_type, price = TradingWorker._parse_price_type("MKT", 21000.0)
+
+        assert price_type == sj.constant.FuturesPriceType.MKT
+        assert order_type == sj.constant.OrderType.IOC
+        assert price == 0.0  # MKT 價格應該是 0
+
+    def test_parse_price_type_LMT無價格應該返回0(self):
+        """測試: LMT 無價格時應該返回 0.0"""
+        import shioaji as sj
+        from trading_worker import TradingWorker
+
+        price_type, order_type, price = TradingWorker._parse_price_type("LMT", None)
+
+        assert price_type == sj.constant.FuturesPriceType.LMT
+        assert price == 0.0
