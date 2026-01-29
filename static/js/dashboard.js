@@ -633,23 +633,46 @@ function hideError() {
 
 let tradingSymbols = [];
 let selectedSymbolInfo = null;
+let accountSummaryInterval = null; // 帳戶摘要自動更新定時器
 
 // Initialize trading panel when tab is switched
 function initTradingPanel() {
     updateTradingModeDisplay();
     loadTradingSymbols();
-    
-    // Auto-select MXFR1 (微型台指期貨近月) as default
+
+    // Auto-select TMFR1 (微型台指期貨近月) as default
     const symbolSelect = document.getElementById('tradingSymbol');
     if (symbolSelect && symbolSelect.value === '') {
-        symbolSelect.value = 'MXFR1';
+        symbolSelect.value = 'TMFR1';
         // Trigger symbol change to load quote data
         onSymbolChange();
     }
-    
+
     refreshPositions();
     refreshAccountSummary();
     loadRecentOrders();
+
+    // 啟動帳戶摘要自動更新（每 2 秒）
+    startAccountSummaryAutoRefresh();
+}
+
+// 啟動帳戶摘要自動更新
+function startAccountSummaryAutoRefresh() {
+    // 先清除既有的定時器，避免重複
+    stopAccountSummaryAutoRefresh();
+
+    accountSummaryInterval = setInterval(() => {
+        refreshAccountSummary();
+        refreshPositions();
+    }, 2000);
+}
+
+// 停止帳戶摘要自動更新
+function stopAccountSummaryAutoRefresh() {
+    if (accountSummaryInterval) {
+        clearInterval(accountSummaryInterval);
+        accountSummaryInterval = null;
+    }
 }
 
 // Update trading mode display
@@ -722,12 +745,12 @@ async function loadTradingSymbols() {
         if (txfGroup.children.length > 0) select.appendChild(txfGroup);
         if (otherGroup.children.length > 0) select.appendChild(otherGroup);
         
-        // Select first MXF symbol by default (微型台指期貨)
-        if (mxfGroup.children.length > 0) {
-            select.value = mxfGroup.children[0].value;
-            onSymbolChange();
-        } else if (tmfGroup.children.length > 0) {
+        // Select first TMF symbol by default (微型台指期貨近月)
+        if (tmfGroup.children.length > 0) {
             select.value = tmfGroup.children[0].value;
+            onSymbolChange();
+        } else if (mxfGroup.children.length > 0) {
+            select.value = mxfGroup.children[0].value;
             onSymbolChange();
         }
         
@@ -1245,12 +1268,17 @@ async function loadRecentOrders() {
 // Override switchTab to initialize trading panel
 const originalSwitchTab = switchTab;
 switchTab = function(tab) {
+    // 離開 trading 分頁時停止自動更新
+    if (currentTab === 'trading' && tab !== 'trading') {
+        stopAccountSummaryAutoRefresh();
+    }
+
     currentTab = tab;
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
     document.querySelector(`.tab[onclick="switchTab('${tab}')"]`).classList.add('active');
     document.getElementById(`${tab}-tab`).classList.add('active');
-    
+
     // Initialize trading panel when switched to
     if (tab === 'trading') {
         initTradingPanel();
