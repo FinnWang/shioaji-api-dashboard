@@ -34,6 +34,8 @@ services:
       - ./trading_queue.py:/app/trading_queue.py:ro
       - ./database.py:/app/database.py:ro
       - ./models.py:/app/models.py:ro
+      - ./quote_manager.py:/app/quote_manager.py:ro
+      - ./websocket_manager.py:/app/websocket_manager.py:ro
       - ./static:/app/static:ro
       # Mount CA certificate for real trading
       - ./certs:/app/certs:ro
@@ -108,6 +110,7 @@ services:
       - ./trading_worker.py:/app/trading_worker.py:ro
       - ./trading.py:/app/trading.py:ro
       - ./trading_queue.py:/app/trading_queue.py:ro
+      - ./quote_manager.py:/app/quote_manager.py:ro
       # Mount CA certificate for real trading
       - ./certs:/app/certs:ro
       - C:/ekey:/ekey:ro
