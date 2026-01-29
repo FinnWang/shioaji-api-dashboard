@@ -46,6 +46,7 @@ from trading import (
     get_contract_from_symbol,
     get_current_position,
 )
+from quote_manager import QuoteManager
 
 # Configure logging
 logging.basicConfig(
@@ -98,14 +99,20 @@ class TradingWorker:
             False: None,  # real trading
         }
         self.pending_trades: Dict[str, Any] = {}  # Store trades for status checking
-        
+
+        # QuoteManager 實例 {simulation: QuoteManager}
+        self._quote_managers: Dict[bool, Optional[QuoteManager]] = {
+            True: None,
+            False: None,
+        }
+
         # Track connection health
         self._last_successful_request: Dict[bool, float] = {
             True: 0.0,
             False: 0.0,
         }
         self._connection_lock = threading.Lock()
-        
+
         # Track if connections are being invalidated (to avoid concurrent cleanup)
         self._invalidating: Dict[bool, bool] = {
             True: False,
@@ -223,12 +230,16 @@ class TradingWorker:
 
                 # Set up event callbacks for session monitoring
                 self._setup_event_callbacks(api, simulation)
-                
+
                 # Activate CA for real trading
                 if not simulation:
                     self._activate_ca(api)
 
                 self.api_clients[simulation] = api
+
+                # Initialize QuoteManager for this connection
+                self._init_quote_manager(api, simulation)
+
                 # Record successful connection time
                 self._last_successful_request[simulation] = time.time()
                 return api
@@ -271,39 +282,79 @@ class TradingWorker:
         )
         logger.info(f"CA activation result: {result}")
 
+    def _init_quote_manager(self, api: sj.Shioaji, simulation: bool):
+        """
+        Initialize QuoteManager for this connection.
+
+        QuoteManager handles real-time quote subscriptions and publishes
+        quote updates to Redis Pub/Sub.
+        """
+        mode_str = self._get_mode_str(simulation)
+
+        try:
+            # Create QuoteManager with the API and Redis client
+            quote_manager = QuoteManager(api=api, redis_client=self.redis)
+            quote_manager.setup_quote_callback()
+
+            self._quote_managers[simulation] = quote_manager
+            logger.info(f"QuoteManager initialized for {mode_str} mode")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize QuoteManager for {mode_str}: {e}")
+            self._quote_managers[simulation] = None
+
+    def _get_quote_manager(self, simulation: bool) -> Optional[QuoteManager]:
+        """Get QuoteManager for the specified mode, creating if necessary."""
+        if self._quote_managers.get(simulation) is None:
+            # Ensure API client exists
+            api = self._get_api_client(simulation)
+            if api and self._quote_managers.get(simulation) is None:
+                self._init_quote_manager(api, simulation)
+
+        return self._quote_managers.get(simulation)
+
     def _invalidate_connection(self, simulation: bool):
         """
         Invalidate a connection (e.g., after error) to force reconnection.
-        
+
         This method handles the case where the connection is already dead
         and logout might timeout or fail.
         """
         mode_str = "simulation" if simulation else "real"
-        
+
         # Prevent concurrent invalidation
         if self._invalidating[simulation]:
             logger.debug(f"Already invalidating {mode_str} connection, skipping...")
             return
-            
+
         with self._connection_lock:
             if self.api_clients[simulation] is None:
                 logger.debug(f"No {mode_str} connection to invalidate")
                 return
-                
+
             self._invalidating[simulation] = True
             logger.warning(f"Invalidating {mode_str} connection...")
-            
+
+            # Cleanup QuoteManager first
+            quote_manager = self._quote_managers.get(simulation)
+            if quote_manager:
+                try:
+                    quote_manager.cleanup()
+                except Exception as e:
+                    logger.debug(f"Error cleaning up QuoteManager: {e}")
+                self._quote_managers[simulation] = None
+
             # Get reference to old client and immediately clear our reference
             # This prevents the garbage collector from trying to logout later
             old_api = self.api_clients[simulation]
             self.api_clients[simulation] = None
-            
+
             # Try to logout gracefully, but don't block for too long
             try:
                 # Use a thread to attempt logout with timeout
                 logout_done = threading.Event()
                 logout_error = [None]
-                
+
                 def do_logout():
                     try:
                         old_api.logout()
@@ -311,10 +362,10 @@ class TradingWorker:
                         logout_error[0] = e
                     finally:
                         logout_done.set()
-                
+
                 logout_thread = threading.Thread(target=do_logout, daemon=True)
                 logout_thread.start()
-                
+
                 # Wait for logout with timeout
                 if logout_done.wait(timeout=CONNECTION_LOGOUT_TIMEOUT):
                     if logout_error[0]:
@@ -328,7 +379,7 @@ class TradingWorker:
                     )
                     # Don't wait for the thread - it's a daemon thread and will be
                     # cleaned up when the process exits
-                    
+
             except Exception as e:
                 logger.debug(f"Error during logout attempt: {e}")
             finally:
@@ -640,6 +691,15 @@ class TradingWorker:
                     },
                 )
 
+            elif operation == TradingOperation.SUBSCRIBE_QUOTE.value:
+                return self._handle_subscribe_quote(api, request)
+
+            elif operation == TradingOperation.UNSUBSCRIBE_QUOTE.value:
+                return self._handle_unsubscribe_quote(request)
+
+            elif operation == TradingOperation.GET_QUOTE_SUBSCRIPTIONS.value:
+                return self._handle_get_quote_subscriptions(request)
+
             else:
                 return TradingResponse(
                     request_id=request.request_id,
@@ -877,6 +937,125 @@ class TradingWorker:
 
         except Exception as e:
             logger.exception(f"Error checking order status: {e}")
+            return TradingResponse(
+                request_id=request.request_id,
+                success=False,
+                error=str(e),
+            )
+
+    def _handle_subscribe_quote(self, api: sj.Shioaji, request: TradingRequest) -> TradingResponse:
+        """Handle quote subscription request."""
+        params = request.params
+        symbol = params["symbol"]
+        simulation = request.simulation
+
+        try:
+            # Get contract
+            contract = get_contract_from_symbol(api, symbol)
+            if contract is None:
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error=f"Contract not found for symbol: {symbol}",
+                )
+
+            # Get or create QuoteManager
+            quote_manager = self._get_quote_manager(simulation)
+            if quote_manager is None:
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error="QuoteManager not available",
+                )
+
+            # Subscribe
+            success = quote_manager.subscribe(contract.symbol, contract)
+            if success:
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data={
+                        "symbol": contract.symbol,
+                        "code": contract.code,
+                        "subscribed": True,
+                        "subscriber_count": quote_manager.get_subscriber_count(contract.symbol),
+                    },
+                )
+            else:
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error=f"Failed to subscribe to {symbol}",
+                )
+
+        except Exception as e:
+            logger.exception(f"Error subscribing to quote: {e}")
+            return TradingResponse(
+                request_id=request.request_id,
+                success=False,
+                error=str(e),
+            )
+
+    def _handle_unsubscribe_quote(self, request: TradingRequest) -> TradingResponse:
+        """Handle quote unsubscription request."""
+        params = request.params
+        symbol = params["symbol"]
+        simulation = request.simulation
+
+        try:
+            quote_manager = self._quote_managers.get(simulation)
+            if quote_manager is None:
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error="QuoteManager not available",
+                )
+
+            # Unsubscribe
+            success = quote_manager.unsubscribe(symbol)
+            return TradingResponse(
+                request_id=request.request_id,
+                success=success,
+                data={
+                    "symbol": symbol,
+                    "subscribed": not success,
+                    "subscriber_count": quote_manager.get_subscriber_count(symbol),
+                },
+            )
+
+        except Exception as e:
+            logger.exception(f"Error unsubscribing from quote: {e}")
+            return TradingResponse(
+                request_id=request.request_id,
+                success=False,
+                error=str(e),
+            )
+
+    def _handle_get_quote_subscriptions(self, request: TradingRequest) -> TradingResponse:
+        """Handle get quote subscriptions request."""
+        simulation = request.simulation
+
+        try:
+            quote_manager = self._quote_managers.get(simulation)
+            if quote_manager is None:
+                return TradingResponse(
+                    request_id=request.request_id,
+                    success=True,
+                    data={"subscriptions": [], "count": 0},
+                )
+
+            subscriptions = quote_manager.get_subscriptions()
+            return TradingResponse(
+                request_id=request.request_id,
+                success=True,
+                data={
+                    "subscriptions": subscriptions,
+                    "count": len(subscriptions),
+                },
+            )
+
+        except Exception as e:
+            logger.exception(f"Error getting quote subscriptions: {e}")
             return TradingResponse(
                 request_id=request.request_id,
                 success=False,

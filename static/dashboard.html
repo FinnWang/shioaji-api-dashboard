@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>自動交易控制台</title>
     <!-- Cache bust: bump version when files change -->
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=5">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=6">
 </head>
 <body>
     <div class="container">
@@ -45,6 +45,10 @@
                             <div class="trading-mode-badge" id="tradingModeBadge">
                                 <span class="mode-dot simulation"></span>
                                 <span id="tradingModeText">模擬模式</span>
+                            </div>
+                            <div class="ws-connection-status ws-disconnected" id="wsConnectionIndicator">
+                                <span class="ws-connection-indicator"></span>
+                                <span id="wsConnectionStatus">未連線</span>
                             </div>
                             <div class="latency-indicator" id="latencyIndicator">
                                 <span class="latency-dot" id="latencyDot"></span>
@@ -783,6 +787,6 @@ if (strategy.position_size < 0)
     
     <!-- Cache bust: bump version when files change -->
     <script src="/static/js/dateUtils.js?v=1"></script>
-    <script src="/static/js/dashboard.js?v=8"></script>
+    <script src="/static/js/dashboard.js?v=9"></script>
 </body>
 </html>

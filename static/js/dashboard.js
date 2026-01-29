@@ -1417,7 +1417,7 @@ function onPriceTypeChange() {
 function setOrderPrice(type) {
     const orderPriceInput = document.getElementById('orderPrice');
     let price = 0;
-    
+
     switch (type) {
         case 'buy':
             const buyPrice = document.getElementById('buyPrice').textContent;
@@ -1438,8 +1438,349 @@ function setOrderPrice(type) {
             }
             break;
     }
-    
+
     if (price > 0) {
         orderPriceInput.value = price;
     }
 }
+
+
+// ===== WebSocket 即時報價功能 =====
+
+let quoteWebSocket = null;
+let wsReconnectTimeout = null;
+let wsReconnectAttempts = 0;
+const WS_MAX_RECONNECT_ATTEMPTS = 10;
+const WS_RECONNECT_DELAY = 3000;
+let wsSubscribedSymbol = null;
+let lastQuoteData = {}; // 追蹤上次報價，用於閃爍效果
+
+// WebSocket 連線狀態
+const WS_STATE = {
+    CONNECTING: 0,
+    CONNECTED: 1,
+    DISCONNECTED: 2,
+    ERROR: 3
+};
+let wsConnectionState = WS_STATE.DISCONNECTED;
+
+// 初始化 WebSocket 連線
+function initQuoteWebSocket() {
+    if (quoteWebSocket && quoteWebSocket.readyState === WebSocket.OPEN) {
+        console.log('WebSocket 已連線');
+        return;
+    }
+
+    // 建立 WebSocket URL
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/ws/quotes`;
+
+    console.log('正在連線 WebSocket:', wsUrl);
+    updateWsConnectionStatus(WS_STATE.CONNECTING);
+
+    try {
+        quoteWebSocket = new WebSocket(wsUrl);
+
+        quoteWebSocket.onopen = function(event) {
+            console.log('WebSocket 連線成功');
+            wsReconnectAttempts = 0;
+            wsConnectionState = WS_STATE.CONNECTED;
+            updateWsConnectionStatus(WS_STATE.CONNECTED);
+
+            // 如果有已選擇的商品，自動訂閱
+            const symbol = document.getElementById('tradingSymbol')?.value;
+            if (symbol) {
+                subscribeQuote(symbol);
+            }
+        };
+
+        quoteWebSocket.onmessage = function(event) {
+            try {
+                const message = JSON.parse(event.data);
+                handleWsMessage(message);
+            } catch (e) {
+                console.error('解析 WebSocket 訊息失敗:', e);
+            }
+        };
+
+        quoteWebSocket.onclose = function(event) {
+            console.log('WebSocket 連線關閉:', event.code, event.reason);
+            wsConnectionState = WS_STATE.DISCONNECTED;
+            updateWsConnectionStatus(WS_STATE.DISCONNECTED);
+
+            // 自動重連
+            scheduleReconnect();
+        };
+
+        quoteWebSocket.onerror = function(error) {
+            console.error('WebSocket 錯誤:', error);
+            wsConnectionState = WS_STATE.ERROR;
+            updateWsConnectionStatus(WS_STATE.ERROR);
+        };
+
+    } catch (error) {
+        console.error('建立 WebSocket 連線失敗:', error);
+        wsConnectionState = WS_STATE.ERROR;
+        updateWsConnectionStatus(WS_STATE.ERROR);
+        scheduleReconnect();
+    }
+}
+
+// 排程重連
+function scheduleReconnect() {
+    if (wsReconnectTimeout) {
+        clearTimeout(wsReconnectTimeout);
+    }
+
+    if (wsReconnectAttempts >= WS_MAX_RECONNECT_ATTEMPTS) {
+        console.log('達到最大重連次數，停止重連');
+        return;
+    }
+
+    wsReconnectAttempts++;
+    const delay = WS_RECONNECT_DELAY * Math.min(wsReconnectAttempts, 5);
+
+    console.log(`將在 ${delay}ms 後嘗試重連 (第 ${wsReconnectAttempts} 次)`);
+
+    wsReconnectTimeout = setTimeout(() => {
+        initQuoteWebSocket();
+    }, delay);
+}
+
+// 關閉 WebSocket 連線
+function closeQuoteWebSocket() {
+    if (wsReconnectTimeout) {
+        clearTimeout(wsReconnectTimeout);
+        wsReconnectTimeout = null;
+    }
+
+    if (quoteWebSocket) {
+        quoteWebSocket.close();
+        quoteWebSocket = null;
+    }
+
+    wsSubscribedSymbol = null;
+    wsConnectionState = WS_STATE.DISCONNECTED;
+}
+
+// 訂閱報價
+function subscribeQuote(symbol) {
+    if (!quoteWebSocket || quoteWebSocket.readyState !== WebSocket.OPEN) {
+        console.warn('WebSocket 未連線，無法訂閱');
+        return;
+    }
+
+    // 先取消舊的訂閱
+    if (wsSubscribedSymbol && wsSubscribedSymbol !== symbol) {
+        unsubscribeQuote(wsSubscribedSymbol);
+    }
+
+    const simulationMode = document.getElementById('simulationMode')?.checked ?? true;
+
+    console.log('訂閱報價:', symbol);
+    quoteWebSocket.send(JSON.stringify({
+        type: 'subscribe',
+        symbol: symbol,
+        simulation: simulationMode
+    }));
+
+    wsSubscribedSymbol = symbol;
+}
+
+// 取消訂閱
+function unsubscribeQuote(symbol) {
+    if (!quoteWebSocket || quoteWebSocket.readyState !== WebSocket.OPEN) {
+        return;
+    }
+
+    const simulationMode = document.getElementById('simulationMode')?.checked ?? true;
+
+    console.log('取消訂閱:', symbol);
+    quoteWebSocket.send(JSON.stringify({
+        type: 'unsubscribe',
+        symbol: symbol,
+        simulation: simulationMode
+    }));
+}
+
+// 處理 WebSocket 訊息
+function handleWsMessage(message) {
+    switch (message.type) {
+        case 'connected':
+            console.log('WebSocket 連線確認:', message.client_id);
+            break;
+
+        case 'subscribed':
+            console.log('訂閱確認:', message.symbol);
+            break;
+
+        case 'unsubscribed':
+            console.log('取消訂閱確認:', message.symbol);
+            if (wsSubscribedSymbol === message.symbol) {
+                wsSubscribedSymbol = null;
+            }
+            break;
+
+        case 'quote':
+            handleQuoteUpdate(message.symbol, message.data);
+            break;
+
+        case 'pong':
+            // 心跳回應
+            break;
+
+        case 'error':
+            console.error('WebSocket 錯誤:', message.message);
+            break;
+
+        default:
+            console.log('未知訊息類型:', message.type);
+    }
+}
+
+// 處理報價更新
+function handleQuoteUpdate(symbol, data) {
+    // 只更新當前選擇的商品
+    const currentSymbol = document.getElementById('tradingSymbol')?.value;
+    if (symbol !== currentSymbol) {
+        return;
+    }
+
+    const prevData = lastQuoteData[symbol] || {};
+
+    // 更新現價並加入閃爍效果
+    const currentPriceEl = document.getElementById('currentPrice');
+    if (currentPriceEl && data.close) {
+        const newPrice = data.close;
+        const oldPrice = parseFloat(currentPriceEl.textContent.replace(/,/g, '')) || 0;
+
+        currentPriceEl.textContent = newPrice.toLocaleString();
+        currentPriceEl.dataset.hasSnapshot = 'true';
+
+        // 價格變動閃爍效果
+        if (oldPrice && newPrice !== oldPrice) {
+            triggerPriceFlash(currentPriceEl, newPrice > oldPrice);
+        }
+    }
+
+    // 更新買價
+    const buyPriceEl = document.getElementById('buyPrice');
+    if (buyPriceEl && data.buy_price !== undefined) {
+        const newPrice = data.buy_price;
+        const oldPrice = prevData.buy_price || 0;
+
+        buyPriceEl.textContent = newPrice ? newPrice.toLocaleString() : '--';
+
+        if (oldPrice && newPrice !== oldPrice) {
+            triggerPriceFlash(buyPriceEl, newPrice > oldPrice);
+        }
+    }
+
+    // 更新賣價
+    const sellPriceEl = document.getElementById('sellPrice');
+    if (sellPriceEl && data.sell_price !== undefined) {
+        const newPrice = data.sell_price;
+        const oldPrice = prevData.sell_price || 0;
+
+        sellPriceEl.textContent = newPrice ? newPrice.toLocaleString() : '--';
+
+        if (oldPrice && newPrice !== oldPrice) {
+            triggerPriceFlash(sellPriceEl, newPrice > oldPrice);
+        }
+    }
+
+    // 更新漲跌
+    const changeEl = document.getElementById('priceChange');
+    if (changeEl) {
+        const change = data.change_price || 0;
+        const rate = data.change_rate || 0;
+        const sign = change >= 0 ? '+' : '';
+        changeEl.textContent = `${sign}${change.toLocaleString()} (${sign}${rate.toFixed(2)}%)`;
+        changeEl.style.color = change >= 0 ? '#22c55e' : '#ef4444';
+    }
+
+    // 儲存本次報價
+    lastQuoteData[symbol] = data;
+}
+
+// 觸發價格閃爍效果
+function triggerPriceFlash(element, isUp) {
+    // 移除既有的動畫類
+    element.classList.remove('flash-up', 'flash-down');
+
+    // 強制重繪
+    void element.offsetWidth;
+
+    // 添加新的動畫類
+    element.classList.add(isUp ? 'flash-up' : 'flash-down');
+
+    // 動畫結束後移除類
+    setTimeout(() => {
+        element.classList.remove('flash-up', 'flash-down');
+    }, 500);
+}
+
+// 更新連線狀態顯示
+function updateWsConnectionStatus(state) {
+    const indicator = document.getElementById('wsConnectionIndicator');
+    const statusText = document.getElementById('wsConnectionStatus');
+
+    if (!indicator || !statusText) return;
+
+    indicator.classList.remove('ws-connecting', 'ws-connected', 'ws-disconnected', 'ws-error');
+
+    switch (state) {
+        case WS_STATE.CONNECTING:
+            indicator.classList.add('ws-connecting');
+            statusText.textContent = '連線中...';
+            break;
+        case WS_STATE.CONNECTED:
+            indicator.classList.add('ws-connected');
+            statusText.textContent = '即時連線';
+            break;
+        case WS_STATE.DISCONNECTED:
+            indicator.classList.add('ws-disconnected');
+            statusText.textContent = '已斷線';
+            break;
+        case WS_STATE.ERROR:
+            indicator.classList.add('ws-error');
+            statusText.textContent = '連線錯誤';
+            break;
+    }
+}
+
+// 發送心跳
+function sendWsPing() {
+    if (quoteWebSocket && quoteWebSocket.readyState === WebSocket.OPEN) {
+        quoteWebSocket.send(JSON.stringify({ type: 'ping' }));
+    }
+}
+
+// 修改 onSymbolChange 以支援 WebSocket 訂閱
+const originalOnSymbolChange = onSymbolChange;
+onSymbolChange = async function() {
+    await originalOnSymbolChange();
+
+    // WebSocket 訂閱新商品
+    const symbol = document.getElementById('tradingSymbol').value;
+    if (symbol && quoteWebSocket && quoteWebSocket.readyState === WebSocket.OPEN) {
+        subscribeQuote(symbol);
+    }
+};
+
+// 修改 initTradingPanel 以初始化 WebSocket
+const originalInitTradingPanel = initTradingPanel;
+initTradingPanel = function() {
+    originalInitTradingPanel();
+
+    // 初始化 WebSocket 連線
+    initQuoteWebSocket();
+
+    // 啟動心跳（每 30 秒）
+    setInterval(sendWsPing, 30000);
+};
+
+// 頁面卸載時關閉連線
+window.addEventListener('beforeunload', function() {
+    closeQuoteWebSocket();
+});

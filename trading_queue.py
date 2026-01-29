@@ -41,6 +41,10 @@ class TradingOperation(str, Enum):
     GET_MARGIN = "get_margin"
     GET_USAGE = "get_usage"
     PING = "ping"
+    # 即時報價訂閱操作
+    SUBSCRIBE_QUOTE = "subscribe_quote"
+    UNSUBSCRIBE_QUOTE = "unsubscribe_quote"
+    GET_QUOTE_SUBSCRIPTIONS = "get_quote_subscriptions"
 
 
 @dataclass
@@ -286,6 +290,37 @@ class TradingQueueClient:
             TradingOperation.GET_SNAPSHOT,
             simulation,
             params={"symbol": symbol},
+        )
+
+    def subscribe_quote(self, symbol: str, simulation: bool = True) -> TradingResponse:
+        """
+        Subscribe to real-time quote updates for a symbol (訂閱即時報價).
+
+        報價會透過 Redis Pub/Sub 推送到 channel: quote:{symbol}
+        """
+        return self.submit_request(
+            TradingOperation.SUBSCRIBE_QUOTE,
+            simulation,
+            params={"symbol": symbol},
+        )
+
+    def unsubscribe_quote(self, symbol: str, simulation: bool = True) -> TradingResponse:
+        """
+        Unsubscribe from real-time quote updates for a symbol (取消訂閱即時報價).
+        """
+        return self.submit_request(
+            TradingOperation.UNSUBSCRIBE_QUOTE,
+            simulation,
+            params={"symbol": symbol},
+        )
+
+    def get_quote_subscriptions(self, simulation: bool = True) -> TradingResponse:
+        """
+        Get list of currently subscribed symbols (取得目前訂閱的商品列表).
+        """
+        return self.submit_request(
+            TradingOperation.GET_QUOTE_SUBSCRIPTIONS,
+            simulation,
         )
 
 

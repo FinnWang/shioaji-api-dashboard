@@ -1,13 +1,16 @@
 from contextlib import asynccontextmanager
+import asyncio
 import csv
 from datetime import datetime, timezone
 import io
+import json
 import logging
 import os
 import time
+import uuid
 from typing import Literal, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Header, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,12 +18,14 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError, OperationalError
+import redis.asyncio as aioredis
 
 from config import settings
 from database import get_db, SessionLocal
 from models import OrderHistory
 from status_mapper import OrderStatusMapper
 from trading_queue import get_queue_client, TradingQueueClient
+from websocket_manager import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
@@ -77,11 +82,60 @@ class OrderHistoryResponse(BaseModel):
     updated_at: Optional[datetime] = None
 
 
+# WebSocket Manager 全域實例
+ws_manager: Optional[WebSocketManager] = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup - database migrations are handled by separate migration service
+    """FastAPI 生命週期管理"""
+    global ws_manager
+
+    # Startup
+    logger.info("正在初始化 WebSocket 服務...")
+
+    # 建立異步 Redis 客戶端
+    try:
+        async_redis = aioredis.from_url(
+            settings.redis_url,
+            encoding="utf-8",
+            decode_responses=True,
+        )
+        await async_redis.ping()
+        logger.info("異步 Redis 連線成功")
+
+        # 建立 WebSocketManager
+        ws_manager = WebSocketManager(redis_client=async_redis)
+
+        # 啟動 Pub/Sub 監聽任務
+        pubsub_task = asyncio.create_task(ws_manager.start_pubsub_listener())
+        logger.info("WebSocket Pub/Sub 監聽已啟動")
+
+    except Exception as e:
+        logger.error(f"WebSocket 服務初始化失敗: {e}")
+        ws_manager = None
+        async_redis = None
+        pubsub_task = None
+
     yield
-    # Shutdown (cleanup if needed)
+
+    # Shutdown
+    logger.info("正在關閉 WebSocket 服務...")
+
+    if ws_manager:
+        await ws_manager.stop_pubsub_listener()
+
+    if pubsub_task:
+        pubsub_task.cancel()
+        try:
+            await pubsub_task
+        except asyncio.CancelledError:
+            pass
+
+    if async_redis:
+        await async_redis.close()
+
+    logger.info("WebSocket 服務已關閉")
 
 
 app = FastAPI(lifespan=lifespan)
@@ -960,3 +1014,175 @@ async def health_check():
 async def dashboard():
     """Serve the dashboard HTML page."""
     return FileResponse(os.path.join(STATIC_DIR, "dashboard.html"), media_type="text/html")
+
+
+# ==================== WebSocket 即時報價端點 ====================
+
+@app.websocket("/ws/quotes")
+async def websocket_quotes_endpoint(websocket: WebSocket):
+    """
+    WebSocket 即時報價端點
+
+    連線後可發送以下訊息：
+    - {"type": "subscribe", "symbol": "MXF202601"} - 訂閱報價
+    - {"type": "unsubscribe", "symbol": "MXF202601"} - 取消訂閱
+    - {"type": "ping"} - 心跳檢測
+
+    伺服器會推送：
+    - {"type": "quote", "symbol": "...", "data": {...}} - 報價更新
+    - {"type": "subscribed", "symbol": "..."} - 訂閱確認
+    - {"type": "unsubscribed", "symbol": "..."} - 取消訂閱確認
+    - {"type": "pong"} - 心跳回應
+    - {"type": "error", "message": "..."} - 錯誤訊息
+    """
+    if ws_manager is None:
+        await websocket.close(code=1011, reason="WebSocket service unavailable")
+        return
+
+    # 生成客戶端 ID
+    client_id = str(uuid.uuid4())
+
+    try:
+        # 接受 WebSocket 連線
+        await websocket.accept()
+        await ws_manager.connect(websocket, client_id)
+
+        # 發送連線確認
+        await websocket.send_json({
+            "type": "connected",
+            "client_id": client_id,
+            "message": "WebSocket 連線成功",
+        })
+
+        # 訊息處理迴圈
+        while True:
+            try:
+                # 接收訊息
+                data = await websocket.receive_json()
+                msg_type = data.get("type")
+
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong"})
+
+                elif msg_type == "subscribe":
+                    symbol = data.get("symbol")
+                    simulation = data.get("simulation", True)
+
+                    if not symbol:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "symbol 為必填欄位",
+                        })
+                        continue
+
+                    # 訂閱到 WebSocket Manager
+                    await ws_manager.subscribe_symbol(client_id, symbol)
+
+                    # 透過 Trading Queue 訂閱 Shioaji 報價
+                    try:
+                        queue_client = get_queue_client()
+                        response = queue_client.subscribe_quote(
+                            symbol=symbol,
+                            simulation=simulation,
+                        )
+
+                        if response.success:
+                            await websocket.send_json({
+                                "type": "subscribed",
+                                "symbol": symbol,
+                                "data": response.data,
+                            })
+                        else:
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"訂閱失敗: {response.error}",
+                                "symbol": symbol,
+                            })
+                    except Exception as e:
+                        logger.error(f"訂閱報價失敗: {e}")
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"訂閱失敗: {str(e)}",
+                            "symbol": symbol,
+                        })
+
+                elif msg_type == "unsubscribe":
+                    symbol = data.get("symbol")
+                    simulation = data.get("simulation", True)
+
+                    if not symbol:
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": "symbol 為必填欄位",
+                        })
+                        continue
+
+                    # 從 WebSocket Manager 取消訂閱
+                    await ws_manager.unsubscribe_symbol(client_id, symbol)
+
+                    # 檢查是否還有其他訂閱者
+                    subscriber_count = ws_manager.get_symbol_subscriber_count(symbol)
+
+                    # 如果沒有訂閱者了，取消 Shioaji 訂閱
+                    if subscriber_count == 0:
+                        try:
+                            queue_client = get_queue_client()
+                            queue_client.unsubscribe_quote(
+                                symbol=symbol,
+                                simulation=simulation,
+                            )
+                        except Exception as e:
+                            logger.error(f"取消訂閱報價失敗: {e}")
+
+                    await websocket.send_json({
+                        "type": "unsubscribed",
+                        "symbol": symbol,
+                    })
+
+                else:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"未知的訊息類型: {msg_type}",
+                    })
+
+            except json.JSONDecodeError:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "無效的 JSON 格式",
+                })
+
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket 客戶端 {client_id} 斷線")
+    except Exception as e:
+        logger.error(f"WebSocket 錯誤: {e}")
+    finally:
+        # 清理連線
+        if ws_manager:
+            # 取得該客戶端訂閱的所有 symbol
+            subscribed_symbols = ws_manager.get_client_subscriptions(client_id)
+            await ws_manager.disconnect(client_id)
+
+            # 對於沒有訂閱者的 symbol，取消 Shioaji 訂閱
+            for symbol in subscribed_symbols:
+                if ws_manager.get_symbol_subscriber_count(symbol) == 0:
+                    try:
+                        queue_client = get_queue_client()
+                        queue_client.unsubscribe_quote(symbol=symbol, simulation=True)
+                    except Exception:
+                        pass
+
+
+@app.get("/ws/stats")
+async def get_websocket_stats():
+    """取得 WebSocket 連線統計"""
+    if ws_manager is None:
+        return {
+            "available": False,
+            "message": "WebSocket 服務未啟動",
+        }
+
+    return {
+        "available": True,
+        "connection_count": ws_manager.get_connection_count(),
+        "subscribed_symbols": list(ws_manager.get_all_subscribed_symbols()),
+    }

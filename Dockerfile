@@ -17,6 +17,8 @@ COPY trading_queue.py .
 COPY trading_worker.py .
 COPY database.py .
 COPY models.py .
+COPY config.py .
+COPY status_mapper.py .
 COPY static/ ./static/
 
 # Expose port
