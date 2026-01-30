@@ -1647,60 +1647,93 @@ function handleQuoteUpdate(symbol, data) {
     }
 
     const prevData = lastQuoteData[symbol] || {};
+    const quoteType = data.quote_type || 'tick';
 
-    // 更新現價並加入閃爍效果
-    const currentPriceEl = document.getElementById('currentPrice');
-    if (currentPriceEl && data.close) {
-        const newPrice = data.close;
-        const oldPrice = parseFloat(currentPriceEl.textContent.replace(/,/g, '')) || 0;
+    // Tick 資料：更新成交價、漲跌幅、成交量
+    if (quoteType === 'tick' && data.close) {
+        // 更新現價並加入閃爍效果
+        const currentPriceEl = document.getElementById('currentPrice');
+        if (currentPriceEl) {
+            const newPrice = data.close;
+            const oldPrice = parseFloat(currentPriceEl.textContent.replace(/,/g, '')) || 0;
 
-        currentPriceEl.textContent = newPrice.toLocaleString();
-        currentPriceEl.dataset.hasSnapshot = 'true';
+            currentPriceEl.textContent = newPrice.toLocaleString();
+            currentPriceEl.dataset.hasSnapshot = 'true';
 
-        // 價格變動閃爍效果
-        if (oldPrice && newPrice !== oldPrice) {
-            triggerPriceFlash(currentPriceEl, newPrice > oldPrice);
+            // 價格變動閃爍效果
+            if (oldPrice && newPrice !== oldPrice) {
+                triggerPriceFlash(currentPriceEl, newPrice > oldPrice);
+            }
         }
-    }
 
-    // 更新買價
-    const buyPriceEl = document.getElementById('buyPrice');
-    if (buyPriceEl && data.buy_price !== undefined) {
-        const newPrice = data.buy_price;
-        const oldPrice = prevData.buy_price || 0;
-
-        buyPriceEl.textContent = newPrice ? newPrice.toLocaleString() : '--';
-
-        if (oldPrice && newPrice !== oldPrice) {
-            triggerPriceFlash(buyPriceEl, newPrice > oldPrice);
+        // 更新漲跌
+        const changeEl = document.getElementById('priceChange');
+        if (changeEl) {
+            const change = data.change_price || 0;
+            const rate = data.change_rate || 0;
+            const sign = change >= 0 ? '+' : '';
+            changeEl.textContent = `${sign}${change.toLocaleString()} (${sign}${rate.toFixed(2)}%)`;
+            changeEl.style.color = change >= 0 ? '#22c55e' : '#ef4444';
         }
-    }
 
-    // 更新賣價
-    const sellPriceEl = document.getElementById('sellPrice');
-    if (sellPriceEl && data.sell_price !== undefined) {
-        const newPrice = data.sell_price;
-        const oldPrice = prevData.sell_price || 0;
-
-        sellPriceEl.textContent = newPrice ? newPrice.toLocaleString() : '--';
-
-        if (oldPrice && newPrice !== oldPrice) {
-            triggerPriceFlash(sellPriceEl, newPrice > oldPrice);
+        // 更新成交量
+        const volumeEl = document.getElementById('totalVolume');
+        if (volumeEl && data.total_volume) {
+            volumeEl.textContent = data.total_volume.toLocaleString();
         }
+
+        // 儲存 Tick 資料
+        lastQuoteData[symbol] = { ...prevData, ...data };
     }
 
-    // 更新漲跌
-    const changeEl = document.getElementById('priceChange');
-    if (changeEl) {
-        const change = data.change_price || 0;
-        const rate = data.change_rate || 0;
-        const sign = change >= 0 ? '+' : '';
-        changeEl.textContent = `${sign}${change.toLocaleString()} (${sign}${rate.toFixed(2)}%)`;
-        changeEl.style.color = change >= 0 ? '#22c55e' : '#ef4444';
-    }
+    // BidAsk 資料：更新買價/賣價
+    if (quoteType === 'bidask') {
+        // 更新買價（委買最佳價）
+        const buyPriceEl = document.getElementById('buyPrice');
+        if (buyPriceEl && data.buy_price) {
+            const newPrice = data.buy_price;
+            const oldPrice = prevData.buy_price || 0;
 
-    // 儲存本次報價
-    lastQuoteData[symbol] = data;
+            buyPriceEl.textContent = newPrice.toLocaleString();
+
+            if (oldPrice && newPrice !== oldPrice) {
+                triggerPriceFlash(buyPriceEl, newPrice > oldPrice);
+            }
+        }
+
+        // 更新賣價（委賣最佳價）
+        const sellPriceEl = document.getElementById('sellPrice');
+        if (sellPriceEl && data.sell_price) {
+            const newPrice = data.sell_price;
+            const oldPrice = prevData.sell_price || 0;
+
+            sellPriceEl.textContent = newPrice.toLocaleString();
+
+            if (oldPrice && newPrice !== oldPrice) {
+                triggerPriceFlash(sellPriceEl, newPrice > oldPrice);
+            }
+        }
+
+        // 更新委託量
+        const buyVolEl = document.getElementById('buyVolume');
+        if (buyVolEl && data.buy_volume) {
+            buyVolEl.textContent = data.buy_volume.toLocaleString();
+        }
+
+        const sellVolEl = document.getElementById('sellVolume');
+        if (sellVolEl && data.sell_volume) {
+            sellVolEl.textContent = data.sell_volume.toLocaleString();
+        }
+
+        // 儲存 BidAsk 資料（合併到現有資料）
+        lastQuoteData[symbol] = {
+            ...prevData,
+            buy_price: data.buy_price,
+            sell_price: data.sell_price,
+            buy_volume: data.buy_volume,
+            sell_volume: data.sell_volume
+        };
+    }
 }
 
 // 觸發價格閃爍效果

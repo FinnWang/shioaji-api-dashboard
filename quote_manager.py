@@ -34,6 +34,7 @@ class QuoteData:
     """
     symbol: str
     code: str = ""
+    quote_type: str = "tick"  # "tick" 或 "bidask"
     close: float = 0.0
     open: float = 0.0
     high: float = 0.0
@@ -145,15 +146,21 @@ class QuoteManager:
                 return True
 
             # 新訂閱，呼叫 Shioaji API
-            # 使用 QuoteType.Tick 來訂閱期貨 Tick 資料
+            # 同時訂閱 Tick（成交）和 BidAsk（五檔）資料
             logger.info(
                 f"[訂閱] 呼叫 Shioaji API: symbol={symbol}, "
                 f"contract.code={getattr(contract, 'code', 'N/A')}, "
                 f"contract.symbol={getattr(contract, 'symbol', 'N/A')}"
             )
+            # 訂閱 Tick 資料（成交價、成交量等）
             self._api.quote.subscribe(
                 contract,
                 quote_type=sj.constant.QuoteType.Tick,
+            )
+            # 訂閱 BidAsk 資料（五檔買賣價量）
+            self._api.quote.subscribe(
+                contract,
+                quote_type=sj.constant.QuoteType.BidAsk,
             )
 
             # 記錄訂閱
@@ -203,9 +210,16 @@ class QuoteManager:
                 )
                 return True
 
-            # 最後一個訂閱者，取消 Shioaji 訂閱
+            # 最後一個訂閱者，取消 Shioaji 訂閱（Tick 和 BidAsk）
             contract = self._subscriptions[symbol]
-            self._api.quote.unsubscribe(contract)
+            self._api.quote.unsubscribe(
+                contract,
+                quote_type=sj.constant.QuoteType.Tick,
+            )
+            self._api.quote.unsubscribe(
+                contract,
+                quote_type=sj.constant.QuoteType.BidAsk,
+            )
 
             # 清理記錄
             del self._subscriptions[symbol]
@@ -359,6 +373,7 @@ class QuoteManager:
             quote_data = QuoteData(
                 symbol=symbol,
                 code=code,
+                quote_type="tick",
                 close=float(tick.close) if tick.close else 0.0,
                 open=float(tick.open) if tick.open else 0.0,
                 high=float(tick.high) if tick.high else 0.0,
@@ -427,6 +442,7 @@ class QuoteManager:
             quote_data = QuoteData(
                 symbol=symbol,
                 code=code,
+                quote_type="bidask",
                 close=0.0,  # BidAsk 不包含成交價
                 open=0.0,
                 high=0.0,
@@ -442,8 +458,8 @@ class QuoteManager:
                 timestamp=timestamp,
             )
 
-            # 發布到 Redis Pub/Sub（使用不同的 channel 以區分）
-            channel = f"{QUOTE_CHANNEL_PREFIX}{symbol}:bidask"
+            # 發布到 Redis Pub/Sub（與 Tick 使用相同 channel，前端透過 quote_type 區分）
+            channel = f"{QUOTE_CHANNEL_PREFIX}{symbol}"
             self._redis.publish(channel, quote_data.to_json())
 
         except Exception as e:

@@ -858,6 +858,15 @@ td { vertical-align: middle; }
 .quote-item .value.up { color: #00ff88; }
 .quote-item .value.down { color: #ff6b6b; }
 
+/* 委託量顯示 */
+.quote-item .volume-hint {
+    display: block;
+    font-size: 0.65rem;
+    color: #a1a1aa;
+    font-family: 'Consolas', monospace;
+    margin-top: 0.15rem;
+}
+
 /* Quantity Input */
 .quantity-input {
     display: flex;
