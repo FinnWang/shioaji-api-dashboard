@@ -286,6 +286,43 @@ class QuoteManager:
         except Exception as e:
             logger.error(f"處理報價回調失敗: {e}")
 
+    def _try_create_dynamic_mapping(self, code: str) -> Optional[str]:
+        """
+        嘗試為未知的合約代碼建立動態映射
+
+        當訂閱別名合約（如 TMFR1）時，Shioaji 返回的報價 code 是實際合約代碼
+        （如 TMFB6），需要動態建立映射。
+
+        Args:
+            code: 報價的合約代碼（如 TMFB6）
+
+        Returns:
+            映射到的 symbol，如果無法映射則返回 None
+        """
+        # 檢查是否有訂閱的別名合約可能對應這個 code
+        for subscribed_symbol, contract in self._subscriptions.items():
+            # 跳過已經有正確映射的合約
+            if subscribed_symbol in self._code_to_symbol.values():
+                continue
+
+            # 檢查是否是別名合約（R1=近月, R2=次月）
+            if subscribed_symbol.endswith('R1') or subscribed_symbol.endswith('R2'):
+                # 獲取合約的基礎代碼（如 TMF, MXF, TXF）
+                base_code = subscribed_symbol[:-2]  # 移除 R1/R2
+
+                # 檢查報價的 code 是否屬於同一商品類型
+                # 期貨代碼格式: TMF{月份代碼}{年份} 如 TMFB6
+                if code.startswith(base_code) or code[:3] == base_code[:3]:
+                    # 建立動態映射
+                    self._code_to_symbol[code] = subscribed_symbol
+                    logger.info(
+                        f"[動態映射] 建立別名映射: {code} -> {subscribed_symbol}, "
+                        f"目前映射表: {self._code_to_symbol}"
+                    )
+                    return subscribed_symbol
+
+        return None
+
     def _handle_tick_fop(self, exchange: Exchange, tick: TickFOPv1) -> None:
         """
         處理期貨/選擇權 Tick 報價回調
@@ -298,7 +335,16 @@ class QuoteManager:
         """
         try:
             code = tick.code
-            symbol = self._code_to_symbol.get(code, code)
+
+            # 嘗試從映射表獲取 symbol
+            symbol = self._code_to_symbol.get(code)
+
+            # 如果 code 不在映射表中，嘗試動態建立映射
+            # 這處理別名合約的情況（如 TMFR1 -> TMFB6）
+            if symbol is None:
+                symbol = self._try_create_dynamic_mapping(code)
+                if symbol is None:
+                    symbol = code  # 如果仍無法映射，使用 code 作為 symbol
 
             logger.info(
                 f"[_handle_tick_fop] 處理報價: code={code}, symbol={symbol}, "
@@ -352,7 +398,15 @@ class QuoteManager:
         """
         try:
             code = bidask.code
-            symbol = self._code_to_symbol.get(code, code)
+
+            # 嘗試從映射表獲取 symbol
+            symbol = self._code_to_symbol.get(code)
+
+            # 如果 code 不在映射表中，嘗試動態建立映射
+            if symbol is None:
+                symbol = self._try_create_dynamic_mapping(code)
+                if symbol is None:
+                    symbol = code
 
             # BidAsk 資料較頻繁，使用 debug 級別
             logger.debug(
