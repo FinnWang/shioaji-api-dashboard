@@ -301,10 +301,6 @@ class QuoteManager:
         """
         # 檢查是否有訂閱的別名合約可能對應這個 code
         for subscribed_symbol, contract in self._subscriptions.items():
-            # 跳過已經有正確映射的合約
-            if subscribed_symbol in self._code_to_symbol.values():
-                continue
-
             # 檢查是否是別名合約（R1=近月, R2=次月）
             if subscribed_symbol.endswith('R1') or subscribed_symbol.endswith('R2'):
                 # 獲取合約的基礎代碼（如 TMF, MXF, TXF）
@@ -312,7 +308,8 @@ class QuoteManager:
 
                 # 檢查報價的 code 是否屬於同一商品類型
                 # 期貨代碼格式: TMF{月份代碼}{年份} 如 TMFB6
-                if code.startswith(base_code) or code[:3] == base_code[:3]:
+                # 比較前 3 個字元（如 TMF, MXF, TXF）
+                if len(code) >= 3 and len(base_code) >= 3 and code[:3] == base_code[:3]:
                     # 建立動態映射
                     self._code_to_symbol[code] = subscribed_symbol
                     logger.info(

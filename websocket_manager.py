@@ -190,7 +190,10 @@ class WebSocketManager:
             message: 要發送的訊息
         """
         if symbol not in self._symbol_subscribers:
+            logger.debug(f"[廣播] symbol={symbol} 無訂閱者，跳過")
             return
+
+        subscriber_count = len(self._symbol_subscribers[symbol])
 
         # 複製 set 避免迭代時修改
         subscribers = list(self._symbol_subscribers[symbol])
@@ -257,6 +260,13 @@ class WebSocketManager:
                 "data": quote_data,
                 "timestamp": quote_data.get("timestamp"),
             }
+
+            # 記錄收到的報價（降低日誌級別避免過多輸出）
+            if self._symbol_subscribers.get(symbol):
+                logger.debug(
+                    f"[Redis] 收到報價: symbol={symbol}, "
+                    f"訂閱者數={len(self._symbol_subscribers.get(symbol, set()))}"
+                )
 
             # 廣播給訂閱者
             await self.broadcast_to_symbol(symbol, message)
