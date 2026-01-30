@@ -5,7 +5,7 @@ QuoteManager - 即時報價訂閱管理器
 
 功能：
 - 訂閱/取消訂閱 Shioaji 即時報價
-- 處理 Shioaji on_quote 回調
+- 處理 Shioaji 期貨報價回調 (TickFOPv1)
 - 透過 Redis Pub/Sub 發布報價給 WebSocket 客戶端
 - 訂閱計數管理（多個客戶端可訂閱同一商品）
 """
@@ -17,6 +17,7 @@ from typing import Dict, List, Optional, Any
 
 import redis
 import shioaji as sj
+from shioaji import Exchange, TickFOPv1, BidAskFOPv1
 
 logger = logging.getLogger(__name__)
 
@@ -96,13 +97,26 @@ class QuoteManager:
         """
         設置 Shioaji 報價回調函數
 
-        在 Worker 初始化時呼叫，註冊 on_quote 回調
+        在 Worker 初始化時呼叫，註冊期貨專用的回調函數：
+        - on_tick_fop_v1: 期貨/選擇權 Tick 資料
+        - on_bidask_fop_v1: 期貨/選擇權五檔資料
         """
-        @self._api.quote.on_quote
-        def on_quote(exchange, quote):
-            self._handle_quote(exchange, quote)
+        # 保存 self 引用供回調使用
+        manager = self
 
-        logger.info("已設置 Shioaji on_quote 回調")
+        # 設置期貨 Tick 回調
+        @self._api.on_tick_fop_v1()
+        def on_tick_fop(exchange: Exchange, tick: TickFOPv1):
+            logger.info(f"[on_tick_fop_v1] 收到 Tick: code={tick.code}, close={tick.close}")
+            manager._handle_tick_fop(exchange, tick)
+
+        # 設置期貨 BidAsk 回調（可選，用於五檔報價）
+        @self._api.on_bidask_fop_v1()
+        def on_bidask_fop(exchange: Exchange, bidask: BidAskFOPv1):
+            logger.debug(f"[on_bidask_fop_v1] 收到 BidAsk: code={bidask.code}")
+            manager._handle_bidask_fop(exchange, bidask)
+
+        logger.info("已設置 Shioaji 期貨回調 (on_tick_fop_v1, on_bidask_fop_v1)")
 
     def subscribe(self, symbol: str, contract: Any) -> bool:
         """
@@ -131,10 +145,15 @@ class QuoteManager:
                 return True
 
             # 新訂閱，呼叫 Shioaji API
+            # 使用 QuoteType.Tick 來訂閱期貨 Tick 資料
+            logger.info(
+                f"[訂閱] 呼叫 Shioaji API: symbol={symbol}, "
+                f"contract.code={getattr(contract, 'code', 'N/A')}, "
+                f"contract.symbol={getattr(contract, 'symbol', 'N/A')}"
+            )
             self._api.quote.subscribe(
                 contract,
-                quote_type=sj.constant.QuoteType.Quote,
-                version=sj.constant.QuoteVersion.v1,
+                quote_type=sj.constant.QuoteType.Tick,
             )
 
             # 記錄訂閱
@@ -144,6 +163,10 @@ class QuoteManager:
             # 建立 code 到 symbol 的對應
             if hasattr(contract, 'code'):
                 self._code_to_symbol[contract.code] = symbol
+                logger.info(
+                    f"[訂閱] 建立 code 映射: {contract.code} -> {symbol}, "
+                    f"目前映射表: {self._code_to_symbol}"
+                )
 
             logger.info(f"已訂閱商品 {symbol}，目前訂閱數: {len(self._subscriptions)}")
             return True
@@ -216,6 +239,12 @@ class QuoteManager:
             code = quote.code
             symbol = self._code_to_symbol.get(code, code)
 
+            # 記錄收到的報價（使用 INFO 級別以便調試）
+            logger.info(
+                f"[_handle_quote] 處理報價: code={code}, symbol={symbol}, "
+                f"映射表={list(self._code_to_symbol.keys())}"
+            )
+
             # 解析報價資料
             # Shioaji v1 quote 格式: close, buy_price, sell_price 是 list
             close_price = quote.close[0] if isinstance(quote.close, list) else quote.close
@@ -252,10 +281,205 @@ class QuoteManager:
             channel = f"{QUOTE_CHANNEL_PREFIX}{symbol}"
             self._redis.publish(channel, quote_data.to_json())
 
-            logger.debug(f"已發布報價 {symbol}: {close_price}")
+            logger.info(f"已發布報價到 {channel}: close={close_price}")
 
         except Exception as e:
             logger.error(f"處理報價回調失敗: {e}")
+
+    def _handle_tick_fop(self, exchange: Exchange, tick: TickFOPv1) -> None:
+        """
+        處理期貨/選擇權 Tick 報價回調
+
+        將 TickFOPv1 資料轉換為統一格式並發布到 Redis Pub/Sub
+
+        Args:
+            exchange: 交易所資訊
+            tick: Shioaji TickFOPv1 物件
+        """
+        try:
+            code = tick.code
+            symbol = self._code_to_symbol.get(code, code)
+
+            logger.info(
+                f"[_handle_tick_fop] 處理報價: code={code}, symbol={symbol}, "
+                f"close={tick.close}, 映射表={list(self._code_to_symbol.keys())}"
+            )
+
+            # 取得時間戳
+            ts = tick.datetime
+            if isinstance(ts, datetime):
+                timestamp = int(ts.timestamp() * 1000)
+            else:
+                timestamp = int(ts) if ts else 0
+
+            # 建立報價資料物件
+            quote_data = QuoteData(
+                symbol=symbol,
+                code=code,
+                close=float(tick.close) if tick.close else 0.0,
+                open=float(tick.open) if tick.open else 0.0,
+                high=float(tick.high) if tick.high else 0.0,
+                low=float(tick.low) if tick.low else 0.0,
+                change_price=float(tick.price_chg) if hasattr(tick, 'price_chg') and tick.price_chg else 0.0,
+                change_rate=float(tick.pct_chg) if hasattr(tick, 'pct_chg') and tick.pct_chg else 0.0,
+                volume=int(tick.volume) if tick.volume else 0,
+                total_volume=int(tick.total_volume) if tick.total_volume else 0,
+                buy_price=0.0,  # Tick 資料不包含五檔
+                sell_price=0.0,
+                buy_volume=int(tick.bid_side_total_vol) if hasattr(tick, 'bid_side_total_vol') and tick.bid_side_total_vol else 0,
+                sell_volume=int(tick.ask_side_total_vol) if hasattr(tick, 'ask_side_total_vol') and tick.ask_side_total_vol else 0,
+                timestamp=timestamp,
+            )
+
+            # 發布到 Redis Pub/Sub
+            channel = f"{QUOTE_CHANNEL_PREFIX}{symbol}"
+            self._redis.publish(channel, quote_data.to_json())
+
+            logger.info(f"已發布報價到 {channel}: close={tick.close}")
+
+        except Exception as e:
+            logger.error(f"處理期貨 Tick 回調失敗: {e}", exc_info=True)
+
+    def _handle_bidask_fop(self, exchange: Exchange, bidask: BidAskFOPv1) -> None:
+        """
+        處理期貨/選擇權 BidAsk 報價回調
+
+        將 BidAskFOPv1 資料轉換為統一格式並發布到 Redis Pub/Sub
+
+        Args:
+            exchange: 交易所資訊
+            bidask: Shioaji BidAskFOPv1 物件
+        """
+        try:
+            code = bidask.code
+            symbol = self._code_to_symbol.get(code, code)
+
+            # BidAsk 資料較頻繁，使用 debug 級別
+            logger.debug(
+                f"[_handle_bidask_fop] 處理五檔: code={code}, symbol={symbol}"
+            )
+
+            # 取得時間戳
+            ts = bidask.datetime
+            if isinstance(ts, datetime):
+                timestamp = int(ts.timestamp() * 1000)
+            else:
+                timestamp = int(ts) if ts else 0
+
+            # 取得最佳買賣價
+            bid_price = float(bidask.bid_price[0]) if bidask.bid_price else 0.0
+            ask_price = float(bidask.ask_price[0]) if bidask.ask_price else 0.0
+            bid_volume = int(bidask.bid_volume[0]) if bidask.bid_volume else 0
+            ask_volume = int(bidask.ask_volume[0]) if bidask.ask_volume else 0
+
+            # 建立報價資料物件（五檔資料主要更新買賣價量）
+            quote_data = QuoteData(
+                symbol=symbol,
+                code=code,
+                close=0.0,  # BidAsk 不包含成交價
+                open=0.0,
+                high=0.0,
+                low=0.0,
+                change_price=0.0,
+                change_rate=0.0,
+                volume=0,
+                total_volume=0,
+                buy_price=bid_price,
+                sell_price=ask_price,
+                buy_volume=bid_volume,
+                sell_volume=ask_volume,
+                timestamp=timestamp,
+            )
+
+            # 發布到 Redis Pub/Sub（使用不同的 channel 以區分）
+            channel = f"{QUOTE_CHANNEL_PREFIX}{symbol}:bidask"
+            self._redis.publish(channel, quote_data.to_json())
+
+        except Exception as e:
+            logger.error(f"處理期貨 BidAsk 回調失敗: {e}", exc_info=True)
+
+    def _handle_quote_v2(self, topic: str, quote: dict) -> None:
+        """
+        處理 Shioaji 報價回調（v2 格式，使用 set_quote_callback）
+
+        將報價資料轉換為統一格式並發布到 Redis Pub/Sub
+
+        Args:
+            topic: 報價主題（包含合約代碼）
+            quote: Shioaji 報價字典
+        """
+        try:
+            # 從 topic 或 quote 中取得 code
+            # topic 格式可能是: "Q/TFE/TMFC6" 或類似
+            code = quote.get('code', '')
+            if not code and '/' in topic:
+                code = topic.split('/')[-1]
+
+            symbol = self._code_to_symbol.get(code, code)
+
+            # 記錄收到的報價
+            logger.info(
+                f"[_handle_quote_v2] 處理報價: topic={topic}, code={code}, "
+                f"symbol={symbol}, 映射表={list(self._code_to_symbol.keys())}"
+            )
+
+            # 解析報價資料（字典格式）
+            close_price = quote.get('close', 0.0)
+            if isinstance(close_price, list):
+                close_price = close_price[0] if close_price else 0.0
+
+            buy_price = quote.get('bid_price', [0.0])
+            if isinstance(buy_price, list):
+                buy_price = buy_price[0] if buy_price else 0.0
+
+            sell_price = quote.get('ask_price', [0.0])
+            if isinstance(sell_price, list):
+                sell_price = sell_price[0] if sell_price else 0.0
+
+            buy_volume = quote.get('bid_volume', [0])
+            if isinstance(buy_volume, list):
+                buy_volume = buy_volume[0] if buy_volume else 0
+
+            sell_volume = quote.get('ask_volume', [0])
+            if isinstance(sell_volume, list):
+                sell_volume = sell_volume[0] if sell_volume else 0
+
+            # 取得時間戳
+            ts = quote.get('datetime')
+            if isinstance(ts, datetime):
+                timestamp = int(ts.timestamp() * 1000)
+            elif ts:
+                timestamp = int(ts)
+            else:
+                timestamp = 0
+
+            # 建立報價資料物件
+            quote_data = QuoteData(
+                symbol=symbol,
+                code=code,
+                close=float(close_price) if close_price else 0.0,
+                open=float(quote.get('open', 0.0) or 0.0),
+                high=float(quote.get('high', 0.0) or 0.0),
+                low=float(quote.get('low', 0.0) or 0.0),
+                change_price=float(quote.get('price_chg', 0.0) or 0.0),
+                change_rate=float(quote.get('pct_chg', 0.0) or 0.0),
+                volume=int(quote.get('volume', 0) or 0),
+                total_volume=int(quote.get('total_volume', 0) or 0),
+                buy_price=float(buy_price) if buy_price else 0.0,
+                sell_price=float(sell_price) if sell_price else 0.0,
+                buy_volume=int(buy_volume) if buy_volume else 0,
+                sell_volume=int(sell_volume) if sell_volume else 0,
+                timestamp=timestamp,
+            )
+
+            # 發布到 Redis Pub/Sub
+            channel = f"{QUOTE_CHANNEL_PREFIX}{symbol}"
+            self._redis.publish(channel, quote_data.to_json())
+
+            logger.info(f"已發布報價到 {channel}: close={close_price}")
+
+        except Exception as e:
+            logger.error(f"處理報價回調失敗 (v2): {e}", exc_info=True)
 
     def get_subscriptions(self) -> List[str]:
         """
