@@ -4,12 +4,10 @@ from typing import TYPE_CHECKING, List
 import shioaji as sj
 from shioaji.contracts import Contract
 from shioaji.error import (
-    TokenError,
-    SystemMaintenance,
-    TimeoutError as SjTimeoutError,
     AccountNotSignError,
     AccountNotProvideError,
     TargetContractNotExistError,
+    TimeoutError as SjTimeoutError,
 )
 
 from config import settings
@@ -28,66 +26,9 @@ class ShioajiError(Exception):
     pass
 
 
-class LoginError(ShioajiError):
-    """Raised when login fails."""
-    pass
-
-
 class OrderError(ShioajiError):
     """Raised when order placement fails."""
     pass
-
-
-def get_api_client(simulation: bool = True):
-    logger.debug(f"Creating API client with simulation={simulation}")
-
-    if not settings.validate_shioaji_credentials():
-        logger.error("API_KEY or SECRET_KEY environment variable not set")
-        raise LoginError("API_KEY or SECRET_KEY environment variable not set")
-
-    try:
-        api = sj.Shioaji(simulation=simulation)
-        api.login(api_key=settings.api_key, secret_key=settings.secret_key)
-        logger.debug("API client logged in successfully")
-
-        # Activate CA certificate for real trading
-        if not simulation:
-            if not settings.validate_ca_credentials():
-                logger.error("CA_PATH or CA_PASSWORD not set for real trading")
-                raise LoginError(
-                    "Real trading requires CA certificate. "
-                    "Please set CA_PATH and CA_PASSWORD environment variables."
-                )
-            
-            # Get person_id from account (Taiwan National ID / 身分證字號)
-            # It's automatically available after login
-            accounts = api.list_accounts()
-            if not accounts:
-                raise LoginError("No accounts found after login")
-            
-            person_id = accounts[0].person_id
-            logger.info(f"Activating CA certificate from {ca_path} for person_id={person_id}")
-            
-            result = api.activate_ca(
-                ca_path=settings.ca_path,
-                ca_passwd=settings.ca_password,
-                person_id=person_id,
-            )
-            logger.info(f"CA activation result: {result}")
-        
-        return api
-    except TokenError as e:
-        logger.error(f"Authentication failed: {e}")
-        raise LoginError(f"Authentication failed: {e}") from e
-    except SystemMaintenance as e:
-        logger.error(f"System is under maintenance: {e}")
-        raise LoginError(f"System is under maintenance: {e}") from e
-    except SjTimeoutError as e:
-        logger.error(f"Login timeout: {e}")
-        raise LoginError(f"Login timeout: {e}") from e
-    except Exception as e:
-        logger.error(f"Unexpected error during login: {e}")
-        raise LoginError(f"Unexpected error during login: {e}") from e
 
 
 def _get_futures_contracts(api: sj.Shioaji) -> List[Contract]:
