@@ -8,7 +8,7 @@ let trades = [];
 let settlements = [];
 let margin = {};
 let profitLoss = {};
-let currentTab = 'orders';
+let currentTab = 'trading';
 let currentAccountTab = 'trades';
 
 // Network latency monitoring
@@ -92,8 +92,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (e.key === 'Enter') loadCurrentTab(); 
     });
     
-    // Don't auto-fetch symbols on page load - let user click to load
-    // This avoids slow initial page load
+    // 預設頁面為快速下單，自動初始化 trading panel
+    if (currentTab === 'trading') {
+        initTradingPanel();
+    }
 });
 
 // Trading Mode Toggle
@@ -320,12 +322,15 @@ function updateOrderStats() {
 async function fetchPositions() {
     const authKey = document.getElementById('authKey').value;
     if (!authKey) { showError('請輸入驗證金鑰'); return; }
-    
+
+    const simulationMode = document.getElementById('simulationMode').checked;
+
     document.getElementById('positionsTable').innerHTML = '<div class="loading">載入中...</div>';
+    updatePositionModeIndicator(simulationMode);
     hideError();
-    
+
     try {
-        const response = await fetch('/positions', { headers: { 'X-Auth-Key': authKey } });
+        const response = await fetch(`/positions?simulation=${simulationMode}`, { headers: { 'X-Auth-Key': authKey } });
         if (!response.ok) throw new Error(response.status === 401 ? '驗證金鑰無效' : '載入失敗');
         const data = await response.json();
         positions = data.positions;
@@ -334,6 +339,20 @@ async function fetchPositions() {
     } catch (error) {
         showError(error.message);
         document.getElementById('positionsTable').innerHTML = '<div class="empty">載入失敗</div>';
+    }
+}
+
+// 更新持倉頁面的模式指示器
+function updatePositionModeIndicator(isSimulation) {
+    const indicator = document.getElementById('positionModeIndicator');
+    if (indicator) {
+        if (isSimulation) {
+            indicator.innerHTML = '🧪 模擬模式';
+            indicator.className = 'mode-indicator simulation';
+        } else {
+            indicator.innerHTML = '💰 實盤模式';
+            indicator.className = 'mode-indicator real';
+        }
     }
 }
 
@@ -744,14 +763,29 @@ async function loadTradingSymbols() {
         if (mxfGroup.children.length > 0) select.appendChild(mxfGroup);
         if (txfGroup.children.length > 0) select.appendChild(txfGroup);
         if (otherGroup.children.length > 0) select.appendChild(otherGroup);
-        
-        // Select first TMF symbol by default (微型台指期貨近月)
-        if (tmfGroup.children.length > 0) {
-            select.value = tmfGroup.children[0].value;
-            onSymbolChange();
-        } else if (mxfGroup.children.length > 0) {
-            select.value = mxfGroup.children[0].value;
-            onSymbolChange();
+
+        // 優先選擇 TMFR1（微型台指期貨近月）
+        const preferredSymbols = ['TMFR1', 'MXFR1', 'TXFR1'];
+        let symbolSelected = false;
+
+        for (const symbol of preferredSymbols) {
+            if (tradingSymbols.some(s => s.symbol === symbol)) {
+                select.value = symbol;
+                onSymbolChange();
+                symbolSelected = true;
+                break;
+            }
+        }
+
+        // 如果偏好的商品都不存在，選擇第一個 TMF 或 MXF
+        if (!symbolSelected) {
+            if (tmfGroup.children.length > 0) {
+                select.value = tmfGroup.children[0].value;
+                onSymbolChange();
+            } else if (mxfGroup.children.length > 0) {
+                select.value = mxfGroup.children[0].value;
+                onSymbolChange();
+            }
         }
         
     } catch (error) {
@@ -1290,11 +1324,17 @@ document.addEventListener('DOMContentLoaded', () => {
     const simToggle = document.getElementById('simulationMode');
     if (simToggle) {
         simToggle.addEventListener('change', () => {
+            const simulationMode = simToggle.checked;
             updateTradingModeDisplay();
+            // 更新持倉頁面的模式指示器
+            updatePositionModeIndicator(simulationMode);
             if (currentTab === 'trading') {
                 loadTradingSymbols();
                 refreshPositions();
                 refreshAccountSummary();
+            } else if (currentTab === 'positions') {
+                // 持倉頁面也要即時刷新
+                fetchPositions();
             }
         });
     }

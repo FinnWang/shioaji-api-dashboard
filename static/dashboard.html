@@ -25,8 +25,8 @@
         <div class="error-msg" id="errorMsg"></div>
         
         <div class="tabs">
-            <button class="tab" onclick="switchTab('trading')">🚀 快速下單</button>
-            <button class="tab active" onclick="switchTab('orders')">📋 委託紀錄</button>
+            <button class="tab active" onclick="switchTab('trading')">🚀 快速下單</button>
+            <button class="tab" onclick="switchTab('orders')">📋 委託紀錄</button>
             <button class="tab" onclick="switchTab('positions')">💼 目前持倉</button>
             <button class="tab" onclick="switchTab('account')">💰 帳戶資訊</button>
             <button class="tab" onclick="switchTab('symbols')">📜 可用商品</button>
@@ -35,7 +35,7 @@
         </div>
         
         <!-- Trading Tab (NEW) -->
-        <div id="trading-tab" class="tab-content">
+        <div id="trading-tab" class="tab-content active">
             <div class="trading-panel">
                 <!-- Left: Order Panel -->
                 <div class="order-panel">
@@ -250,7 +250,7 @@
         </div>
         
         <!-- Orders Tab -->
-        <div id="orders-tab" class="tab-content active">
+        <div id="orders-tab" class="tab-content">
             <div class="filters">
                 <select id="filterStatus">
                     <option value="">全部狀態</option>
@@ -283,8 +283,9 @@
             <div class="stats" id="positionStats">
                 <div class="stat-card total"><h3>持倉數量</h3><div class="value" id="posCount">-</div></div>
                 <div class="stat-card" id="pnlCard"><h3>未實現損益</h3><div class="value" id="totalPnl">-</div></div>
+                <div class="stat-card"><h3>帳戶類型</h3><div class="value"><span id="positionModeIndicator" class="mode-indicator simulation">🧪 模擬模式</span></div></div>
             </div>
-            
+
             <div id="positionsTable"><div class="empty">請輸入驗證金鑰並點擊「載入資料」查看目前持倉</div></div>
         </div>
         
@@ -793,6 +794,6 @@ if (strategy.position_size < 0)
     
     <!-- Cache bust: bump version when files change -->
     <script src="/static/js/dateUtils.js?v=1"></script>
-    <script src="/static/js/dashboard.js?v=9"></script>
+    <script src="/static/js/dashboard.js?v=10"></script>
 </body>
 </html>
