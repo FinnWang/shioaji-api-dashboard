@@ -22,6 +22,7 @@ COPY status_mapper.py .
 COPY quote_manager.py .
 COPY quote_storage.py .
 COPY websocket_manager.py .
+COPY analysis_levels_client.py .
 COPY static/ ./static/
 
 # Expose port
