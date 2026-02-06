@@ -72,6 +72,7 @@ class OrderHistoryResponse(BaseModel):
     action: str
     quantity: int
     status: str
+    simulation: bool = True  # True=模擬模式, False=實盤模式
     order_result: Optional[str]
     error_message: Optional[str]
     created_at: datetime
@@ -614,6 +615,7 @@ async def create_order(
         action=order_request.action,
         quantity=order_request.quantity,
         status="pending",
+        simulation=1 if simulation else 0,  # 儲存交易模式
         fill_status="PendingSubmit",
     )
 
@@ -743,6 +745,7 @@ async def get_orders(
     symbol: Optional[str] = Query(None, description="Filter by symbol"),
     action: Optional[str] = Query(None, description="Filter by action"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    simulation: Optional[bool] = Query(None, description="Filter by trading mode (True=模擬, False=實盤)"),
     start_date: Optional[datetime] = Query(None, description="Filter from date"),
     end_date: Optional[datetime] = Query(None, description="Filter to date"),
     limit: int = Query(100, ge=1, le=1000, description="Limit results"),
@@ -756,6 +759,8 @@ async def get_orders(
         query = query.filter(OrderHistory.action == action)
     if status:
         query = query.filter(OrderHistory.status == status)
+    if simulation is not None:
+        query = query.filter(OrderHistory.simulation == (1 if simulation else 0))
     if start_date:
         query = query.filter(OrderHistory.created_at >= start_date)
     if end_date:
@@ -772,6 +777,7 @@ async def export_orders(
     symbol: Optional[str] = Query(None, description="Filter by symbol"),
     action: Optional[str] = Query(None, description="Filter by action"),
     status: Optional[str] = Query(None, description="Filter by status"),
+    simulation: Optional[bool] = Query(None, description="Filter by trading mode (True=模擬, False=實盤)"),
     start_date: Optional[datetime] = Query(None, description="Filter from date"),
     end_date: Optional[datetime] = Query(None, description="Filter to date"),
     format: str = Query("csv", description="Export format: csv or json"),
@@ -784,6 +790,8 @@ async def export_orders(
         query = query.filter(OrderHistory.action == action)
     if status:
         query = query.filter(OrderHistory.status == status)
+    if simulation is not None:
+        query = query.filter(OrderHistory.simulation == (1 if simulation else 0))
     if start_date:
         query = query.filter(OrderHistory.created_at >= start_date)
     if end_date:

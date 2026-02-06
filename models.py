@@ -32,6 +32,7 @@ class OrderHistory(Base):
     action = Column(String, nullable=False)
     quantity = Column(Integer, nullable=False)
     status = Column(String, nullable=False)
+    simulation = Column(Integer, nullable=False, default=1, index=True)  # 1=模擬模式, 0=實盤模式
     order_result = Column(String, nullable=True)
     error_message = Column(String, nullable=True)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
@@ -56,6 +57,7 @@ class OrderHistory(Base):
             "action": self.action,
             "quantity": self.quantity,
             "status": self.status,
+            "simulation": bool(self.simulation),  # 轉換為布林值
             "order_result": self.order_result,
             "error_message": self.error_message,
             "created_at": self.created_at.isoformat() if self.created_at else None,

@@ -172,19 +172,22 @@ function loadCurrentTab() {
 async function fetchOrders() {
     const authKey = document.getElementById('authKey').value;
     if (!authKey) { showError('請輸入驗證金鑰'); return; }
-    
+
+    const mode = document.getElementById('filterMode').value;
     const status = document.getElementById('filterStatus').value;
     const action = document.getElementById('filterAction').value;
     const symbol = document.getElementById('filterSymbol').value;
-    
+
     let url = '/orders?limit=500';
+    if (mode === 'simulation') url += '&simulation=true';
+    else if (mode === 'real') url += '&simulation=false';
     if (status) url += `&status=${status}`;
     if (action) url += `&action=${action}`;
     if (symbol) url += `&symbol=${symbol}`;
-    
+
     document.getElementById('ordersTable').innerHTML = '<div class="loading">載入中...</div>';
     hideError();
-    
+
     try {
         const response = await fetch(url, { headers: { 'X-Auth-Key': authKey } });
         if (!response.ok) throw new Error(response.status === 401 ? '驗證金鑰無效' : '載入失敗');
@@ -202,49 +205,57 @@ function renderOrdersTable() {
         document.getElementById('ordersTable').innerHTML = '<div class="empty">無委託紀錄</div>';
         return;
     }
-    
+
     let html = `<table><thead><tr>
         <th style="width:10%">時間</th>
         <th style="width:4%">#</th>
-        <th style="width:12%">商品</th>
+        <th style="width:5%">模式</th>
+        <th style="width:11%">商品</th>
         <th style="width:7%">動作</th>
         <th style="width:5%">口數</th>
         <th style="width:8%">狀態</th>
-        <th style="width:13%">成交</th>
-        <th style="width:37%">訊息</th>
+        <th style="width:12%">成交</th>
+        <th style="width:34%">訊息</th>
         <th style="width:4%"></th>
     </tr></thead><tbody>`;
-    
+
     for (const order of orders) {
         const date = formatToTimezone(order.created_at);
-        
-        const statusClass = order.status === 'filled' ? 'status-success' : 
+
+        const statusClass = order.status === 'filled' ? 'status-success' :
                            order.status === 'failed' ? 'status-failed' :
                            order.status === 'cancelled' || order.status === 'no_action' ? 'status-no_action' :
                            'status-pending';
         const statusText = statusLabels[order.status] || order.status;
-        
-        const fillInfo = order.fill_quantity 
-            ? `${order.fill_quantity}口 @ ${order.fill_price?.toLocaleString() || '-'}` 
+
+        const fillInfo = order.fill_quantity
+            ? `${order.fill_quantity}口 @ ${order.fill_price?.toLocaleString() || '-'}`
             : '-';
-        
+
         const act = actionIcons[order.action] || { icon: '●', label: order.action, color: '#a1a1aa' };
-        
+
         const canRecheck = ['submitted', 'pending', 'partial_filled'].includes(order.status);
-        const recheckBtn = canRecheck 
+        const recheckBtn = canRecheck
             ? `<button class="recheck-btn" onclick="recheckOrder(${order.id})" title="重新查詢狀態">🔄</button>`
             : '';
-        
+
+        // 模式標記
+        const isSimulation = order.simulation !== false; // 預設為模擬模式
+        const modeIcon = isSimulation ? '🧪' : '💰';
+        const modeText = isSimulation ? '模擬' : '實盤';
+        const modeColor = isSimulation ? '#22c55e' : '#ef4444';
+
         // Error message - truncate if too long
-        const errorMsg = order.error_message 
-            ? (order.error_message.length > 50 
+        const errorMsg = order.error_message
+            ? (order.error_message.length > 50
                 ? `<span title="${order.error_message}" style="color:#ff6b6b;font-size:0.8rem;cursor:help">${order.error_message.substring(0, 50)}...</span>`
                 : `<span style="color:#ff6b6b;font-size:0.8rem">${order.error_message}</span>`)
             : '<span style="color:#52525b">-</span>';
-        
+
         html += `<tr id="order-row-${order.id}">
             <td style="color:#a1a1aa;font-size:0.8rem;font-family:'Consolas',monospace">${date}</td>
             <td style="color:#71717a;font-size:0.8rem">${order.id}</td>
+            <td><span style="color:${modeColor};font-size:0.75rem" title="${modeText}模式">${modeIcon}${modeText}</span></td>
             <td>
                 <div style="font-family:'Consolas',monospace">
                     <span style="color:#00d9ff;font-weight:600;font-size:0.85rem">${order.symbol}</span>
@@ -313,9 +324,18 @@ async function recheckOrder(orderId) {
 }
 
 function updateOrderStats() {
+    const simOrders = orders.filter(o => o.simulation !== false);
+    const realOrders = orders.filter(o => o.simulation === false);
+
     document.getElementById('statTotal').textContent = orders.length;
     document.getElementById('statSuccess').textContent = orders.filter(o => o.status === 'filled' || o.status === 'success').length;
     document.getElementById('statFailed').textContent = orders.filter(o => o.status === 'failed').length;
+
+    // 更新統計卡片的副標題，顯示模擬/實盤分佈
+    const totalCard = document.querySelector('#orderStats .stat-card.total h3');
+    if (totalCard) {
+        totalCard.innerHTML = `總委託數<br><span style="font-size:0.7rem;font-weight:normal;color:#a1a1aa">🧪${simOrders.length} / 💰${realOrders.length}</span>`;
+    }
 }
 
 // Positions
@@ -1057,8 +1077,18 @@ async function placeOrder(action) {
             showOrderStatus('info', result.message || '無需執行動作');
         } else {
             showOrderStatus('success', `委託成功！訂單 #${result.order_id}`);
+
+            // 如果訂單成交，標記到圖表上
+            if (result.status === 'filled' || result.fill_price) {
+                notifyOrderFilled({
+                    action: action,
+                    price: result.fill_price || price,
+                    quantity: result.fill_quantity || quantity,
+                    filled_at: result.filled_at || new Date()
+                });
+            }
         }
-        
+
         // Refresh data
         setTimeout(() => {
             refreshPositions();
@@ -1425,13 +1455,30 @@ function formatBytes(bytes) {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 }
 
-// Auto-fetch usage when switching to limits tab
+// Auto-fetch usage when switching to limits tab and handle chart tab
 const originalSwitchTabForLimits = switchTab;
 switchTab = function(tab) {
+    // 離開 chart 分頁時銷毀圖表
+    if (currentTab === 'chart' && tab !== 'chart') {
+        if (typeof destroyRealtimeChart === 'function') {
+            destroyRealtimeChart();
+        }
+    }
+
     originalSwitchTabForLimits(tab);
-    
+
     if (tab === 'limits') {
         fetchUsage();
+    }
+
+    // 進入 chart 分頁時初始化圖表
+    if (tab === 'chart') {
+        // 延遲初始化確保 DOM 已渲染
+        setTimeout(() => {
+            if (typeof initRealtimeChart === 'function') {
+                initRealtimeChart();
+            }
+        }, 100);
     }
 };
 
@@ -1857,3 +1904,51 @@ initTradingPanel = function() {
 window.addEventListener('beforeunload', function() {
     closeQuoteWebSocket();
 });
+
+
+// ===== 圖表整合功能 =====
+
+/**
+ * 通知圖表模組有新的成交
+ * @param {Object} orderData - 訂單資料
+ */
+function notifyOrderFilled(orderData) {
+    // 如果圖表已初始化且 onOrderFilled 函數存在，則調用它
+    if (typeof onOrderFilled === 'function') {
+        onOrderFilled(orderData);
+    }
+}
+
+/**
+ * 同步圖表商品與交易面板
+ */
+function syncChartSymbol() {
+    const tradingSymbol = document.getElementById('tradingSymbol')?.value;
+    if (tradingSymbol && typeof changeChartSymbol === 'function') {
+        // 將 MXFR1 等轉換為 MXF
+        let chartSymbol = tradingSymbol;
+        if (tradingSymbol.startsWith('TMF')) {
+            chartSymbol = 'TMF';
+        } else if (tradingSymbol.startsWith('MXF')) {
+            chartSymbol = 'MXF';
+        } else if (tradingSymbol.startsWith('TXF')) {
+            chartSymbol = 'TXF';
+        }
+
+        // 更新圖表商品選擇器
+        const chartSymbolSelect = document.getElementById('chartSymbol');
+        if (chartSymbolSelect && chartSymbolSelect.value !== chartSymbol) {
+            chartSymbolSelect.value = chartSymbol;
+            changeChartSymbol(chartSymbol);
+        }
+    }
+}
+
+// 當交易商品變更時，同步到圖表
+const originalOnSymbolChangeForChart = onSymbolChange;
+onSymbolChange = async function() {
+    await originalOnSymbolChangeForChart();
+
+    // 同步圖表商品
+    syncChartSymbol();
+};

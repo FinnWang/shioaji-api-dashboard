@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>自動交易控制台</title>
     <!-- Cache bust: bump version when files change -->
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=6">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=7">
 </head>
 <body>
     <div class="container">
@@ -32,6 +32,7 @@
             <button class="tab" onclick="switchTab('symbols')">📜 可用商品</button>
             <button class="tab" onclick="switchTab('limits')">📊 API 限制</button>
             <button class="tab" onclick="switchTab('webhook')">🔗 TradingView 設定</button>
+            <button class="tab" onclick="switchTab('chart')">📈 即時圖表</button>
         </div>
         
         <!-- Trading Tab (NEW) -->
@@ -252,10 +253,17 @@
         <!-- Orders Tab -->
         <div id="orders-tab" class="tab-content">
             <div class="filters">
+                <select id="filterMode">
+                    <option value="">全部模式</option>
+                    <option value="simulation">模擬模式</option>
+                    <option value="real">實盤模式</option>
+                </select>
                 <select id="filterStatus">
                     <option value="">全部狀態</option>
-                    <option value="success">成功</option>
+                    <option value="filled">已成交</option>
+                    <option value="submitted">委託中</option>
                     <option value="failed">失敗</option>
+                    <option value="cancelled">已取消</option>
                     <option value="no_action">無動作</option>
                 </select>
                 <select id="filterAction">
@@ -268,7 +276,7 @@
                 <input type="text" id="filterSymbol" placeholder="商品代碼...">
                 <button class="btn-secondary" onclick="fetchOrders()">套用篩選</button>
             </div>
-            
+
             <div class="stats" id="orderStats">
                 <div class="stat-card total"><h3>總委託數</h3><div class="value" id="statTotal">-</div></div>
                 <div class="stat-card success"><h3>成功</h3><div class="value" id="statSuccess">-</div></div>
@@ -790,10 +798,72 @@ if (strategy.position_size < 0)
                 </div>
             </div>
         </div>
+
+        <!-- Chart Tab -->
+        <div id="chart-tab" class="tab-content">
+            <!-- 圖表控制列 -->
+            <div class="chart-controls">
+                <div class="chart-controls-left">
+                    <select id="chartSymbol" onchange="changeChartSymbol(this.value)">
+                        <option value="TXF" selected>TXF 大台指</option>
+                        <option value="MXF">MXF 小台指</option>
+                        <option value="TMF">TMF 微台指</option>
+                    </select>
+                    <button id="toggleLevelsBtn" class="btn-toggle active" onclick="toggleSupportResistance()">
+                        隱藏支撐壓力
+                    </button>
+                    <button class="btn-refresh" onclick="refreshChart()">🔄 刷新</button>
+                </div>
+                <div class="chart-controls-right">
+                    <div id="chartStatus" class="chart-status loading">
+                        <span class="status-dot"></span>載入中...
+                    </div>
+                </div>
+            </div>
+
+            <!-- 價格資訊 -->
+            <div class="chart-price-bar">
+                <div class="chart-price-info">
+                    <span class="chart-symbol" id="chartSymbolName">TXF</span>
+                    <span id="chartCurrentPrice" class="chart-price">--</span>
+                    <span id="chartPriceChange" class="chart-change">--</span>
+                </div>
+                <div id="chartLevelsSummary" class="chart-levels-summary">
+                    <!-- 支撐壓力摘要會動態填入 -->
+                </div>
+            </div>
+
+            <!-- 圖表容器 -->
+            <div id="chartContainer" class="chart-container"></div>
+
+            <!-- 交易記錄 -->
+            <div class="chart-trades-section">
+                <div class="chart-trades-header">
+                    <h3>📋 交易記錄</h3>
+                    <button class="btn-small" onclick="clearTradeMarkers()">清除記錄</button>
+                </div>
+                <div id="chartTradesList" class="chart-trades-list">
+                    <div class="no-trades">尚無交易記錄</div>
+                </div>
+            </div>
+
+            <!-- 圖例 -->
+            <div class="chart-legend">
+                <div class="legend-item"><span class="legend-color resistance"></span>壓力 (R1/R2)</div>
+                <div class="legend-item"><span class="legend-color support"></span>支撐 (S1/S2)</div>
+                <div class="legend-item"><span class="legend-color maxpain"></span>Max Pain</div>
+                <div class="legend-item"><span class="legend-color oi-resistance"></span>OI 壓力</div>
+                <div class="legend-item"><span class="legend-color oi-support"></span>OI 支撐</div>
+            </div>
+        </div>
     </div>
-    
+
+    <!-- Lightweight Charts CDN -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+
     <!-- Cache bust: bump version when files change -->
     <script src="/static/js/dateUtils.js?v=1"></script>
-    <script src="/static/js/dashboard.js?v=10"></script>
+    <script src="/static/js/realtime-chart.js?v=1"></script>
+    <script src="/static/js/dashboard.js?v=11"></script>
 </body>
 </html>

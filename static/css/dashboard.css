@@ -1716,3 +1716,431 @@ td { vertical-align: middle; }
         height: 6px;
     }
 }
+
+
+/* ===== 即時圖表 Tab 樣式 ===== */
+
+/* 圖表控制列 */
+.chart-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+}
+
+.chart-controls-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.chart-controls-right {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.chart-controls select {
+    padding: 0.6rem 1rem;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.3);
+    color: #fff;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+
+.chart-controls select:focus {
+    outline: none;
+    border-color: #00d9ff;
+}
+
+.btn-toggle {
+    padding: 0.5rem 1rem;
+    font-size: 0.85rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    color: #a1a1aa;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-toggle.active {
+    background: rgba(0, 217, 255, 0.2);
+    border-color: rgba(0, 217, 255, 0.4);
+    color: #00d9ff;
+}
+
+.btn-toggle:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.btn-small {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.75rem;
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 6px;
+    color: #a1a1aa;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.btn-small:hover {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
+}
+
+/* 圖表狀態指示器 */
+.chart-status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.8rem;
+    border-radius: 20px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.chart-status .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.chart-status.loading {
+    background: rgba(251, 191, 36, 0.15);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    color: #fbbf24;
+}
+
+.chart-status.loading .status-dot {
+    background: #fbbf24;
+    animation: pulse 1s infinite;
+}
+
+.chart-status.connected {
+    background: rgba(34, 197, 94, 0.15);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    color: #22c55e;
+}
+
+.chart-status.connected .status-dot {
+    background: #22c55e;
+    animation: pulse 2s infinite;
+}
+
+.chart-status.error {
+    background: rgba(239, 68, 68, 0.15);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.chart-status.error .status-dot {
+    background: #ef4444;
+}
+
+.chart-status.nodata {
+    background: rgba(161, 161, 170, 0.15);
+    border: 1px solid rgba(161, 161, 170, 0.3);
+    color: #a1a1aa;
+}
+
+.chart-status.nodata .status-dot {
+    background: #a1a1aa;
+}
+
+/* 價格資訊列 */
+.chart-price-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1rem 1.25rem;
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    margin-bottom: 1rem;
+}
+
+.chart-price-info {
+    display: flex;
+    align-items: baseline;
+    gap: 1rem;
+}
+
+.chart-symbol {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: #00d9ff;
+}
+
+.chart-price {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: 'Consolas', monospace;
+    color: #e4e4e7;
+}
+
+.chart-price.up { color: #00ff88; }
+.chart-price.down { color: #ff6b6b; }
+
+.chart-change {
+    font-size: 1rem;
+    font-family: 'Consolas', monospace;
+}
+
+.chart-change.up { color: #00ff88; }
+.chart-change.down { color: #ff6b6b; }
+
+.chart-levels-summary {
+    display: flex;
+    gap: 1rem;
+}
+
+.chart-levels-summary .level {
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    font-family: 'Consolas', monospace;
+}
+
+.chart-levels-summary .level.resistance {
+    background: rgba(167, 139, 250, 0.2);
+    color: #a78bfa;
+}
+
+.chart-levels-summary .level.support {
+    background: rgba(251, 146, 60, 0.2);
+    color: #fb923c;
+}
+
+.chart-levels-summary .level.maxpain {
+    background: rgba(255, 255, 255, 0.15);
+    color: #e4e4e7;
+}
+
+/* 圖表容器 */
+.chart-container {
+    width: 100%;
+    height: 500px;
+    background: #1a1a2e;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* 交易記錄區域 */
+.chart-trades-section {
+    margin-top: 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1rem;
+}
+
+.chart-trades-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chart-trades-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #e4e4e7;
+}
+
+.chart-trades-list {
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+.chart-trades-list .no-trades {
+    text-align: center;
+    color: #71717a;
+    padding: 2rem;
+    font-size: 0.9rem;
+}
+
+/* 交易項目 */
+.trade-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 8px;
+    margin-bottom: 0.5rem;
+}
+
+.trade-item:last-child { margin-bottom: 0; }
+
+.trade-item .trade-icon {
+    font-size: 1rem;
+    width: 24px;
+    text-align: center;
+}
+
+.trade-item.buy .trade-icon { color: #00ff88; }
+.trade-item.sell .trade-icon { color: #ff6b6b; }
+
+.trade-item .trade-action {
+    font-weight: 600;
+    font-size: 0.85rem;
+    min-width: 40px;
+}
+
+.trade-item.buy .trade-action { color: #00ff88; }
+.trade-item.sell .trade-action { color: #ff6b6b; }
+
+.trade-item .trade-price {
+    font-family: 'Consolas', monospace;
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #e4e4e7;
+}
+
+.trade-item .trade-qty {
+    font-size: 0.8rem;
+    color: #a1a1aa;
+    font-family: 'Consolas', monospace;
+}
+
+.trade-item .trade-time {
+    margin-left: auto;
+    font-size: 0.75rem;
+    color: #71717a;
+    font-family: 'Consolas', monospace;
+}
+
+/* 圖例 */
+.chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 8px;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: #a1a1aa;
+}
+
+.legend-color {
+    width: 20px;
+    height: 3px;
+    border-radius: 2px;
+}
+
+.legend-color.resistance {
+    background: rgba(167, 139, 250, 0.7);
+}
+
+.legend-color.support {
+    background: rgba(251, 146, 60, 0.7);
+}
+
+.legend-color.maxpain {
+    background: rgba(255, 255, 255, 0.5);
+    height: 2px;
+}
+
+.legend-color.oi-resistance {
+    background: rgba(167, 139, 250, 0.7);
+    height: 2px;
+    border-style: solid;
+}
+
+.legend-color.oi-support {
+    background: rgba(251, 146, 60, 0.7);
+    height: 2px;
+    border-style: solid;
+}
+
+/* 響應式圖表樣式 */
+@media (max-width: 768px) {
+    .chart-controls {
+        flex-direction: column;
+        gap: 0.75rem;
+    }
+
+    .chart-controls-left,
+    .chart-controls-right {
+        width: 100%;
+        justify-content: space-between;
+    }
+
+    .chart-price-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 1rem;
+    }
+
+    .chart-price-info {
+        flex-wrap: wrap;
+    }
+
+    .chart-price {
+        font-size: 1.5rem;
+    }
+
+    .chart-levels-summary {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .chart-container {
+        height: 350px;
+    }
+
+    .chart-legend {
+        gap: 1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .chart-controls-left {
+        flex-wrap: wrap;
+    }
+
+    .chart-price {
+        font-size: 1.25rem;
+    }
+
+    .chart-change {
+        font-size: 0.85rem;
+    }
+
+    .chart-container {
+        height: 280px;
+    }
+
+    .chart-levels-summary .level {
+        font-size: 0.7rem;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .trade-item {
+        font-size: 0.8rem;
+    }
+
+    .trade-item .trade-price {
+        font-size: 0.85rem;
+    }
+}
