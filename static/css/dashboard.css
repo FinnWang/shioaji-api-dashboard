@@ -217,6 +217,22 @@ td { vertical-align: middle; }
 .simulation-toggle span { font-size: 0.875rem; color: #a1a1aa; }
 .simulation-toggle:has(input:checked) span { color: #00ff88; }
 
+/* Mode Indicator */
+.mode-indicator {
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+}
+.mode-indicator.simulation {
+    color: #22c55e;
+    background: rgba(34, 197, 94, 0.15);
+}
+.mode-indicator.real {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.15);
+}
+
 /* Info Cards */
 .info-card {
     background: rgba(255, 255, 255, 0.05);
