@@ -105,16 +105,23 @@ services:
       - .env
     environment:
       - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/shioaji
     volumes:
       # Mount source code for live updates (no rebuild needed)
       - ./trading_worker.py:/app/trading_worker.py:ro
       - ./trading.py:/app/trading.py:ro
       - ./trading_queue.py:/app/trading_queue.py:ro
       - ./quote_manager.py:/app/quote_manager.py:ro
+      - ./quote_storage.py:/app/quote_storage.py:ro
+      - ./database.py:/app/database.py:ro
+      - ./models.py:/app/models.py:ro
+      - ./config.py:/app/config.py:ro
       # Mount CA certificate for real trading
       - ./certs:/app/certs:ro
       - C:/ekey:/ekey:ro
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
     restart: unless-stopped
