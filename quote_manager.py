@@ -8,16 +8,20 @@ QuoteManager - 即時報價訂閱管理器
 - 處理 Shioaji 期貨報價回調 (TickFOPv1)
 - 透過 Redis Pub/Sub 發布報價給 WebSocket 客戶端
 - 訂閱計數管理（多個客戶端可訂閱同一商品）
+- 將報價資料儲存到資料庫（透過 QuoteStorage）
 """
 import json
 import logging
 from dataclasses import dataclass, asdict, field
 from datetime import datetime
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, TYPE_CHECKING
 
 import redis
 import shioaji as sj
 from shioaji import Exchange, TickFOPv1, BidAskFOPv1
+
+if TYPE_CHECKING:
+    from quote_storage import QuoteStorage
 
 logger = logging.getLogger(__name__)
 
@@ -72,16 +76,23 @@ class QuoteManager:
     注意：Shioaji 每帳號最多 200 個訂閱
     """
 
-    def __init__(self, api: sj.Shioaji, redis_client: redis.Redis):
+    def __init__(
+        self,
+        api: sj.Shioaji,
+        redis_client: redis.Redis,
+        quote_storage: Optional["QuoteStorage"] = None,
+    ):
         """
         初始化 QuoteManager
 
         Args:
             api: Shioaji API 實例
             redis_client: Redis 客戶端實例
+            quote_storage: 報價儲存器實例（可選）
         """
         self._api = api
         self._redis = redis_client
+        self._quote_storage = quote_storage
 
         # 追蹤已訂閱的合約 {symbol: contract}
         self._subscriptions: Dict[str, Any] = {}
@@ -92,7 +103,8 @@ class QuoteManager:
         # 追蹤 symbol 和 code 的對應關係 {code: symbol}
         self._code_to_symbol: Dict[str, str] = {}
 
-        logger.info("QuoteManager 初始化完成")
+        storage_status = "已啟用" if quote_storage and quote_storage.is_enabled else "未啟用"
+        logger.info(f"QuoteManager 初始化完成 (報價儲存: {storage_status})")
 
     def setup_quote_callback(self) -> None:
         """
@@ -395,6 +407,10 @@ class QuoteManager:
 
             logger.info(f"已發布報價到 {channel}: close={tick.close}")
 
+            # 儲存報價到資料庫
+            if self._quote_storage and self._quote_storage.is_enabled:
+                self._quote_storage.add_quote(quote_data.to_dict())
+
         except Exception as e:
             logger.error(f"處理期貨 Tick 回調失敗: {e}", exc_info=True)
 
@@ -461,6 +477,10 @@ class QuoteManager:
             # 發布到 Redis Pub/Sub（與 Tick 使用相同 channel，前端透過 quote_type 區分）
             channel = f"{QUOTE_CHANNEL_PREFIX}{symbol}"
             self._redis.publish(channel, quote_data.to_json())
+
+            # 儲存報價到資料庫
+            if self._quote_storage and self._quote_storage.is_enabled:
+                self._quote_storage.add_quote(quote_data.to_dict())
 
         except Exception as e:
             logger.error(f"處理期貨 BidAsk 回調失敗: {e}", exc_info=True)

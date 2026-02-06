@@ -106,7 +106,7 @@ class TestQuoteManagerSubscribe:
     """QuoteManager.subscribe 測試"""
 
     def test_subscribe_新商品應該調用API訂閱(self):
-        """測試: 訂閱新商品時應該調用 Shioaji API 訂閱"""
+        """測試: 訂閱新商品時應該調用 Shioaji API 訂閱 Tick 和 BidAsk"""
         # Arrange
         mock_api = Mock()
         mock_contract = Mock()
@@ -123,7 +123,8 @@ class TestQuoteManagerSubscribe:
 
         # Assert
         assert result is True
-        mock_api.quote.subscribe.assert_called_once()
+        # 應該呼叫兩次: 一次 Tick, 一次 BidAsk
+        assert mock_api.quote.subscribe.call_count == 2
         assert manager._subscriber_counts.get("MXF202601") == 1
 
     def test_subscribe_已訂閱商品應該只增加計數(self):
@@ -171,7 +172,7 @@ class TestQuoteManagerUnsubscribe:
     """QuoteManager.unsubscribe 測試"""
 
     def test_unsubscribe_最後一個訂閱者應該取消API訂閱(self):
-        """測試: 最後一個訂閱者取消時應該調用 API 取消訂閱"""
+        """測試: 最後一個訂閱者取消時應該調用 API 取消訂閱 Tick 和 BidAsk"""
         # Arrange
         mock_api = Mock()
         mock_contract = Mock()
@@ -187,7 +188,8 @@ class TestQuoteManagerUnsubscribe:
 
         # Assert
         assert result is True
-        mock_api.quote.unsubscribe.assert_called_once_with(mock_contract)
+        # 應該呼叫兩次: 一次 Tick, 一次 BidAsk
+        assert mock_api.quote.unsubscribe.call_count == 2
         assert "MXF202601" not in manager._subscriptions
         assert "MXF202601" not in manager._subscriber_counts
 

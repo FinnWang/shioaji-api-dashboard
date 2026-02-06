@@ -24,6 +24,7 @@
 - 🔐 **API 金鑰驗證** - 保護敏感端點
 - 📜 **商品查詢** - 查看所有可交易的期貨商品代碼
 - 🔌 **Redis 訊息佇列** - 單一連線架構，避免 "Too Many Connections" 問題
+- 📈 **報價歷史儲存** - 自動儲存 Tick 和 BidAsk 報價資料至資料庫，供量化分析和回測使用
 
 ## 🏗️ 系統架構
 
@@ -62,7 +63,7 @@
 | **FastAPI App** | 處理 HTTP 請求的 API 服務，支援多 worker 擴展 |
 | **Redis** | 訊息佇列，用於 API 與 Trading Worker 之間的通訊 |
 | **Trading Worker** | 專用的交易服務，維護單一 Shioaji 連線，自動重連 |
-| **PostgreSQL** | 儲存訂單歷史紀錄 |
+| **PostgreSQL** | 儲存訂單歷史紀錄、報價歷史資料 |
 
 ## 🚀 快速開始
 
@@ -112,6 +113,11 @@ NGROK_AUTHTOKEN=your_ngrok_auth_token_here
 
 # IP 白名單 (可選，預設允許所有 IP)
 ALLOWED_IPS=0.0.0.0/0
+
+# 報價歷史儲存設定 (可選)
+QUOTE_STORAGE_ENABLED=true           # 是否啟用報價儲存
+QUOTE_STORAGE_BUFFER_SIZE=100        # 緩衝區大小
+QUOTE_STORAGE_FLUSH_INTERVAL=5.0     # 刷新間隔（秒）
 ```
 
 > 💡 **注意：** 資料庫連線設定 (DATABASE_URL, POSTGRES_*) 已在 docker-compose.yaml 中預設，無需手動設定。
@@ -328,6 +334,51 @@ Web 控制台提供以下分頁：
 - JSON Payload 格式
 - Pine Script 範例
 
+## 📈 報價歷史 API
+
+系統會自動儲存訂閱商品的 Tick 和 BidAsk 報價資料到資料庫，供量化分析和回測使用。
+
+### 查詢報價歷史
+
+```bash
+# 查詢特定商品的報價歷史
+curl "http://localhost:9879/quotes/history?symbol=MXFR1&limit=100"
+
+# 依報價類型篩選
+curl "http://localhost:9879/quotes/history?symbol=MXFR1&quote_type=tick"
+
+# 依時間範圍篩選
+curl "http://localhost:9879/quotes/history?symbol=MXFR1&start_time=2024-01-01T00:00:00Z&end_time=2024-01-02T00:00:00Z"
+```
+
+### 匯出報價資料
+
+```bash
+# 匯出為 CSV
+curl "http://localhost:9879/quotes/history/export?symbol=MXFR1&format=csv" -o quotes.csv
+
+# 匯出為 JSON
+curl "http://localhost:9879/quotes/history/export?symbol=MXFR1&format=json" -o quotes.json
+```
+
+### 取得有報價歷史的商品列表
+
+```bash
+curl "http://localhost:9879/quotes/symbols"
+```
+
+### 配置選項
+
+可透過環境變數調整報價儲存行為：
+
+| 環境變數 | 預設值 | 說明 |
+|---------|--------|------|
+| `QUOTE_STORAGE_ENABLED` | `true` | 是否啟用報價儲存 |
+| `QUOTE_STORAGE_BUFFER_SIZE` | `100` | 緩衝區大小，達到此數量時批次寫入 |
+| `QUOTE_STORAGE_FLUSH_INTERVAL` | `5.0` | 定時刷新間隔（秒） |
+
+> 💡 **資料量估算：** 每日約 50-80 萬筆 Tick 資料，每月約 3-5 GB 儲存空間。
+
 ## 🛠️ 開發
 
 ### 本地開發
@@ -354,6 +405,8 @@ shioaji-api-dashboard/
 ├── trading.py           # Shioaji 交易邏輯（共用函數）
 ├── trading_queue.py     # Redis 佇列介面
 ├── trading_worker.py    # Trading Worker 服務
+├── quote_manager.py     # 即時報價訂閱管理
+├── quote_storage.py     # 報價歷史批次寫入器
 ├── database.py          # 資料庫連線
 ├── models.py            # SQLAlchemy 模型
 ├── static/

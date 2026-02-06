@@ -61,6 +61,11 @@ class Settings(BaseSettings):
     order_status_check_interval: int = 5  # 狀態檢查間隔秒數
     order_status_max_retries: int = 120  # 最大狀態檢查次數（約 10 分鐘）
 
+    # 報價儲存設定
+    quote_storage_enabled: bool = True  # 是否啟用報價儲存
+    quote_storage_buffer_size: int = 100  # 緩衝區大小，達到此數量時批次寫入
+    quote_storage_flush_interval: float = 5.0  # 定時刷新間隔（秒）
+
     @property
     def supported_futures_list(self) -> list[str]:
         """取得支援的期貨商品列表"""

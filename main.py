@@ -22,7 +22,7 @@ import redis.asyncio as aioredis
 
 from config import settings
 from database import get_db, SessionLocal
-from models import OrderHistory
+from models import OrderHistory, QuoteHistory
 from status_mapper import OrderStatusMapper
 from trading_queue import get_queue_client, TradingQueueClient
 from websocket_manager import WebSocketManager
@@ -80,6 +80,30 @@ class OrderHistoryResponse(BaseModel):
     fill_quantity: Optional[int] = None
     fill_price: Optional[float] = None
     updated_at: Optional[datetime] = None
+
+
+class QuoteHistoryResponse(BaseModel):
+    """報價歷史回應模型"""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    symbol: str
+    code: str
+    quote_type: str
+    close_price: Optional[float] = None
+    open_price: Optional[float] = None
+    high_price: Optional[float] = None
+    low_price: Optional[float] = None
+    change_price: Optional[float] = None
+    change_rate: Optional[float] = None
+    volume: Optional[int] = None
+    total_volume: Optional[int] = None
+    buy_price: Optional[float] = None
+    sell_price: Optional[float] = None
+    buy_volume: Optional[int] = None
+    sell_volume: Optional[int] = None
+    quote_time: datetime
+    created_at: Optional[datetime] = None
 
 
 # WebSocket Manager 全域實例
@@ -1014,6 +1038,169 @@ async def health_check():
 async def dashboard():
     """Serve the dashboard HTML page."""
     return FileResponse(os.path.join(STATIC_DIR, "dashboard.html"), media_type="text/html")
+
+
+# ==================== 報價歷史 API ====================
+
+@app.get("/quotes/history", response_model=list[QuoteHistoryResponse])
+async def get_quote_history(
+    db: Session = Depends(get_db),
+    symbol: Optional[str] = Query(None, description="篩選商品代碼"),
+    code: Optional[str] = Query(None, description="篩選交易所代碼"),
+    quote_type: Optional[str] = Query(None, description="篩選報價類型: tick 或 bidask"),
+    start_time: Optional[datetime] = Query(None, description="起始時間"),
+    end_time: Optional[datetime] = Query(None, description="結束時間"),
+    limit: int = Query(100, ge=1, le=10000, description="回傳筆數上限"),
+    offset: int = Query(0, ge=0, description="分頁偏移量"),
+):
+    """
+    查詢報價歷史資料
+
+    支援依商品代碼、時間範圍、報價類型篩選，並提供分頁功能。
+    """
+    query = db.query(QuoteHistory)
+
+    if symbol:
+        query = query.filter(QuoteHistory.symbol == symbol)
+    if code:
+        query = query.filter(QuoteHistory.code == code)
+    if quote_type:
+        query = query.filter(QuoteHistory.quote_type == quote_type)
+    if start_time:
+        query = query.filter(QuoteHistory.quote_time >= start_time)
+    if end_time:
+        query = query.filter(QuoteHistory.quote_time <= end_time)
+
+    quotes = query.order_by(QuoteHistory.quote_time.desc()).offset(offset).limit(limit).all()
+    return quotes
+
+
+@app.get("/quotes/history/count")
+async def get_quote_history_count(
+    db: Session = Depends(get_db),
+    symbol: Optional[str] = Query(None, description="篩選商品代碼"),
+    code: Optional[str] = Query(None, description="篩選交易所代碼"),
+    quote_type: Optional[str] = Query(None, description="篩選報價類型: tick 或 bidask"),
+    start_time: Optional[datetime] = Query(None, description="起始時間"),
+    end_time: Optional[datetime] = Query(None, description="結束時間"),
+):
+    """
+    取得報價歷史資料筆數
+
+    用於分頁計算總頁數。
+    """
+    query = db.query(QuoteHistory)
+
+    if symbol:
+        query = query.filter(QuoteHistory.symbol == symbol)
+    if code:
+        query = query.filter(QuoteHistory.code == code)
+    if quote_type:
+        query = query.filter(QuoteHistory.quote_type == quote_type)
+    if start_time:
+        query = query.filter(QuoteHistory.quote_time >= start_time)
+    if end_time:
+        query = query.filter(QuoteHistory.quote_time <= end_time)
+
+    count = query.count()
+    return {"count": count}
+
+
+@app.get("/quotes/history/export")
+async def export_quote_history(
+    db: Session = Depends(get_db),
+    symbol: Optional[str] = Query(None, description="篩選商品代碼"),
+    code: Optional[str] = Query(None, description="篩選交易所代碼"),
+    quote_type: Optional[str] = Query(None, description="篩選報價類型: tick 或 bidask"),
+    start_time: Optional[datetime] = Query(None, description="起始時間"),
+    end_time: Optional[datetime] = Query(None, description="結束時間"),
+    format: str = Query("csv", description="匯出格式: csv 或 json"),
+    limit: int = Query(100000, ge=1, le=1000000, description="匯出筆數上限"),
+):
+    """
+    匯出報價歷史資料
+
+    支援 CSV 和 JSON 格式匯出。
+    """
+    query = db.query(QuoteHistory)
+
+    if symbol:
+        query = query.filter(QuoteHistory.symbol == symbol)
+    if code:
+        query = query.filter(QuoteHistory.code == code)
+    if quote_type:
+        query = query.filter(QuoteHistory.quote_type == quote_type)
+    if start_time:
+        query = query.filter(QuoteHistory.quote_time >= start_time)
+    if end_time:
+        query = query.filter(QuoteHistory.quote_time <= end_time)
+
+    quotes = query.order_by(QuoteHistory.quote_time.desc()).limit(limit).all()
+
+    if format == "json":
+        return [quote.to_dict() for quote in quotes]
+
+    # CSV 匯出
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "id", "symbol", "code", "quote_type",
+        "close_price", "open_price", "high_price", "low_price",
+        "change_price", "change_rate", "volume", "total_volume",
+        "buy_price", "sell_price", "buy_volume", "sell_volume",
+        "quote_time", "created_at"
+    ])
+
+    for quote in quotes:
+        writer.writerow([
+            quote.id,
+            quote.symbol,
+            quote.code,
+            quote.quote_type,
+            quote.close_price,
+            quote.open_price,
+            quote.high_price,
+            quote.low_price,
+            quote.change_price,
+            quote.change_rate,
+            quote.volume,
+            quote.total_volume,
+            quote.buy_price,
+            quote.sell_price,
+            quote.buy_volume,
+            quote.sell_volume,
+            quote.quote_time.isoformat() if quote.quote_time else "",
+            quote.created_at.isoformat() if quote.created_at else "",
+        ])
+
+    output.seek(0)
+
+    # 產生檔名
+    filename = "quote_history"
+    if symbol:
+        filename += f"_{symbol}"
+    if quote_type:
+        filename += f"_{quote_type}"
+    filename += ".csv"
+
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
+@app.get("/quotes/symbols")
+async def get_quote_symbols(
+    db: Session = Depends(get_db),
+):
+    """
+    取得有報價歷史的商品代碼列表
+    """
+    from sqlalchemy import distinct
+
+    symbols = db.query(distinct(QuoteHistory.symbol)).all()
+    return {"symbols": [s[0] for s in symbols], "count": len(symbols)}
 
 
 # ==================== WebSocket 即時報價端點 ====================

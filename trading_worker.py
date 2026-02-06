@@ -47,6 +47,7 @@ from trading import (
     get_current_position,
 )
 from quote_manager import QuoteManager
+from quote_storage import QuoteStorage
 
 # Configure logging
 logging.basicConfig(
@@ -102,6 +103,12 @@ class TradingWorker:
 
         # QuoteManager 實例 {simulation: QuoteManager}
         self._quote_managers: Dict[bool, Optional[QuoteManager]] = {
+            True: None,
+            False: None,
+        }
+
+        # QuoteStorage 實例 {simulation: QuoteStorage}
+        self._quote_storages: Dict[bool, Optional[QuoteStorage]] = {
             True: None,
             False: None,
         }
@@ -292,8 +299,20 @@ class TradingWorker:
         mode_str = self._get_mode_str(simulation)
 
         try:
-            # Create QuoteManager with the API and Redis client
-            quote_manager = QuoteManager(api=api, redis_client=self.redis)
+            # 初始化 QuoteStorage（如果尚未建立）
+            if self._quote_storages.get(simulation) is None:
+                quote_storage = QuoteStorage()
+                self._quote_storages[simulation] = quote_storage
+                logger.info(f"QuoteStorage initialized for {mode_str} mode")
+            else:
+                quote_storage = self._quote_storages[simulation]
+
+            # Create QuoteManager with the API, Redis client, and QuoteStorage
+            quote_manager = QuoteManager(
+                api=api,
+                redis_client=self.redis,
+                quote_storage=quote_storage,
+            )
             quote_manager.setup_quote_callback()
 
             self._quote_managers[simulation] = quote_manager
@@ -335,7 +354,16 @@ class TradingWorker:
             self._invalidating[simulation] = True
             logger.warning(f"Invalidating {mode_str} connection...")
 
-            # Cleanup QuoteManager first
+            # Cleanup QuoteStorage first
+            quote_storage = self._quote_storages.get(simulation)
+            if quote_storage:
+                try:
+                    quote_storage.stop()
+                except Exception as e:
+                    logger.debug(f"Error stopping QuoteStorage: {e}")
+                self._quote_storages[simulation] = None
+
+            # Cleanup QuoteManager
             quote_manager = self._quote_managers.get(simulation)
             if quote_manager:
                 try:
