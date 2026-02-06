@@ -1203,6 +1203,124 @@ async def get_quote_symbols(
     return {"symbols": [s[0] for s in symbols], "count": len(symbols)}
 
 
+# ==================== 支撐壓力分析端點 ====================
+
+@app.get("/analysis/levels")
+async def get_analysis_levels(
+    symbol: str = Query("TXF", description="商品代碼: TXF 或 MXF"),
+):
+    """
+    取得支撐壓力分析數據
+
+    從 shioaji-proxy 取得 Pivot Points、Max Pain、OI 支撐壓力、VWAP 等技術分析指標。
+    """
+    if not settings.analysis_proxy_url:
+        raise HTTPException(
+            status_code=503,
+            detail="支撐壓力分析服務未設定，請設定 ANALYSIS_PROXY_URL 環境變數"
+        )
+
+    from analysis_levels_client import AnalysisLevelsClient
+
+    try:
+        with AnalysisLevelsClient(
+            settings.analysis_proxy_url,
+            timeout=settings.analysis_timeout
+        ) as client:
+            levels = client.get_levels(symbol)
+
+            if not levels.is_valid:
+                raise HTTPException(
+                    status_code=502,
+                    detail="無法從分析服務取得數據"
+                )
+
+            return {
+                "success": True,
+                "timestamp": levels.timestamp,
+                "symbol": levels.symbol,
+                "data": {
+                    "price": levels.price,
+                    "change": levels.change,
+                    "change_percent": levels.change_percent,
+                    "vwap": levels.vwap,
+                    "price_position": levels.get_price_position(),
+                    "pivot_points": {
+                        "pp": levels.pp,
+                        "r1": levels.r1,
+                        "r2": levels.r2,
+                        "r3": levels.r3,
+                        "s1": levels.s1,
+                        "s2": levels.s2,
+                        "s3": levels.s3,
+                    },
+                    "oi_levels": {
+                        "max_pain": levels.max_pain,
+                        "resistance": levels.oi_resistance,
+                        "support": levels.oi_support,
+                    },
+                    "nearest_resistance": levels.get_nearest_resistance(),
+                    "nearest_support": levels.get_nearest_support(),
+                    "resistances": levels.resistances,
+                    "supports": levels.supports,
+                }
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"取得支撐壓力分析失敗: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/analysis/levels/simple")
+async def get_analysis_levels_simple(
+    symbol: str = Query("TXF", description="商品代碼: TXF 或 MXF"),
+):
+    """
+    取得簡化版支撐壓力分析（快速查詢）
+
+    只返回關鍵數據：當前價格、VWAP、最近支撐壓力位。
+    """
+    if not settings.analysis_proxy_url:
+        raise HTTPException(
+            status_code=503,
+            detail="支撐壓力分析服務未設定，請設定 ANALYSIS_PROXY_URL 環境變數"
+        )
+
+    from analysis_levels_client import AnalysisLevelsClient
+
+    try:
+        with AnalysisLevelsClient(
+            settings.analysis_proxy_url,
+            timeout=settings.analysis_timeout
+        ) as client:
+            levels = client.get_levels_simple(symbol)
+
+            if not levels.is_valid:
+                raise HTTPException(
+                    status_code=502,
+                    detail="無法從分析服務取得數據"
+                )
+
+            return {
+                "success": True,
+                "timestamp": levels.timestamp,
+                "symbol": levels.symbol,
+                "price": levels.price,
+                "vwap": levels.vwap,
+                "max_pain": levels.max_pain,
+                "nearest_resistance": levels.get_nearest_resistance(),
+                "nearest_support": levels.get_nearest_support(),
+                "is_near_resistance": levels.is_near_resistance(),
+                "is_near_support": levels.is_near_support(),
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"取得簡化支撐壓力分析失敗: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ==================== WebSocket 即時報價端點 ====================
 
 @app.websocket("/ws/quotes")

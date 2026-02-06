@@ -379,6 +379,72 @@ curl "http://localhost:9879/quotes/symbols"
 
 > 💡 **資料量估算：** 每日約 50-80 萬筆 Tick 資料，每月約 3-5 GB 儲存空間。
 
+## 📊 支撐壓力分析整合
+
+本系統可整合 [shioaji-proxy](https://github.com/your-repo/shioaji-proxy) 的支撐壓力分析數據，用於自動化交易決策。
+
+### 功能說明
+
+| 指標 | 說明 |
+|------|------|
+| **Pivot Points** | 根據前一交易日 OHLC 計算的支撐壓力（PP, R1-R3, S1-S3） |
+| **Max Pain** | 選擇權最大痛點，市場傾向收斂的價位 |
+| **OI 壓力/支撐** | 最大 Call/Put 未平倉量對應的履約價 |
+| **VWAP** | 成交量加權平均價 |
+| **強度等級** | 多重確認的支撐壓力位（1-3 級） |
+
+### 使用方式
+
+專案已包含 `analysis_levels_client.py` 客戶端：
+
+```python
+from analysis_levels_client import AnalysisLevelsClient
+
+# 連接到 shioaji-proxy
+api_url = "https://shioaji-proxy.zeabur.app"
+
+with AnalysisLevelsClient(api_url) as client:
+    levels = client.get_levels("TXF")
+
+    if levels.is_valid:
+        print(f"當前價格: {levels.price}")
+        print(f"最近壓力: {levels.get_nearest_resistance()}")
+        print(f"最近支撐: {levels.get_nearest_support()}")
+        print(f"VWAP 位置: {levels.get_price_position()}")
+
+        # 交易決策參考
+        if levels.is_near_support(tolerance=30):
+            print("接近支撐位，可考慮做多")
+        elif levels.is_near_resistance(tolerance=30):
+            print("接近壓力位，可考慮做空")
+```
+
+### API 端點
+
+| 端點 | 說明 |
+|------|------|
+| `GET /api/analysis/levels?symbol=TXF` | 完整分析數據 |
+| `GET /api/analysis/levels/simple?symbol=TXF` | 簡化版（快速查詢） |
+
+### 回應範例
+
+```json
+{
+  "success": true,
+  "timestamp": "2026-02-04T09:30:00+08:00",
+  "data": {
+    "symbol": "TXF",
+    "quote": {"close": 21500, "change": 150},
+    "pivot_points": {"pp": 21450, "r1": 21550, "s1": 21350},
+    "oi_levels": {"max_pain": 21500, "resistance": 21600, "support": 21400},
+    "vwap": 21480,
+    "strength_levels": [
+      {"price": 21500, "type": "resistance", "strength": 3, "label": "R1+OI壓+MP"}
+    ]
+  }
+}
+```
+
 ## 🛠️ 開發
 
 ### 本地開發

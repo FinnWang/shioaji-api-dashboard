@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     quote_storage_buffer_size: int = 100  # 緩衝區大小，達到此數量時批次寫入
     quote_storage_flush_interval: float = 5.0  # 定時刷新間隔（秒）
 
+    # 支撐壓力分析設定
+    analysis_proxy_url: Optional[str] = None  # shioaji-proxy API URL
+    analysis_timeout: float = 10.0  # 請求超時時間（秒）
+
     @property
     def supported_futures_list(self) -> list[str]:
         """取得支援的期貨商品列表"""
