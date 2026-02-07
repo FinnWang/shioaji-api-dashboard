@@ -20,6 +20,7 @@ shioaji.log
 # IDE
 .vscode/
 .idea/
+.claude/settings.local.json
 
 # Docker
 .docker/
@@ -30,3 +31,8 @@ postgres_data/
 # Marketing posts (personal)
 docs/MARKETING_POST*
 docs/MEDIUM*
+
+# Windows system files
+nul
+Thumbs.db
+desktop.ini
