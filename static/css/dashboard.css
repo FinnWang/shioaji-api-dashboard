@@ -1936,6 +1936,58 @@ td { vertical-align: middle; }
     overflow: hidden;
 }
 
+/* 圖表資訊區域 */
+.chart-info {
+    margin-top: 1.5rem;
+    background: rgba(0, 217, 255, 0.1);
+    border: 1px solid rgba(0, 217, 255, 0.3);
+    border-radius: 12px;
+    padding: 1.5rem;
+}
+
+.chart-info h3 {
+    margin: 0 0 1rem 0;
+    font-size: 1rem;
+    color: #00d9ff;
+}
+
+.chart-info ul {
+    margin: 0;
+    padding-left: 1.5rem;
+    line-height: 1.8;
+}
+
+.chart-info li {
+    color: #e4e4e7;
+    font-size: 0.9rem;
+}
+
+/* 圖表報價詳情 */
+.chart-quote-detail {
+    display: flex;
+    gap: 1rem;
+    align-items: center;
+}
+
+.chart-quote-detail .quote-label {
+    color: #a1a1aa;
+    font-size: 0.85rem;
+}
+
+.chart-quote-detail .quote-value {
+    font-family: 'Consolas', monospace;
+    font-weight: 600;
+    font-size: 0.95rem;
+}
+
+.chart-quote-detail .quote-value.up {
+    color: #00ff88;
+}
+
+.chart-quote-detail .quote-value.down {
+    color: #ff6b6b;
+}
+
 /* 交易記錄區域 */
 .chart-trades-section {
     margin-top: 1.5rem;

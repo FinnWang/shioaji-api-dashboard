@@ -1460,8 +1460,8 @@ const originalSwitchTabForLimits = switchTab;
 switchTab = function(tab) {
     // 離開 chart 分頁時銷毀圖表
     if (currentTab === 'chart' && tab !== 'chart') {
-        if (typeof destroyRealtimeChart === 'function') {
-            destroyRealtimeChart();
+        if (typeof destroyLocalRealtimeChart === 'function') {
+            destroyLocalRealtimeChart();
         }
     }
 
@@ -1475,8 +1475,8 @@ switchTab = function(tab) {
     if (tab === 'chart') {
         // 延遲初始化確保 DOM 已渲染
         setTimeout(() => {
-            if (typeof initRealtimeChart === 'function') {
-                initRealtimeChart();
+            if (typeof initLocalRealtimeChart === 'function') {
+                initLocalRealtimeChart();
             }
         }, 100);
     }
