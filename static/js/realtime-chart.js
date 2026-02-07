@@ -66,8 +66,16 @@ function initRealtimeChart() {
         return;
     }
 
-    // 建立圖表
-    chart = LightweightCharts.createChart(container, {
+    // 檢查 Lightweight Charts 是否載入
+    if (typeof LightweightCharts === 'undefined') {
+        console.error('Lightweight Charts 未載入，請檢查網路連線');
+        updateChartStatus('error', 'CDN 載入失敗');
+        return;
+    }
+
+    try {
+        // 建立圖表
+        chart = LightweightCharts.createChart(container, {
         width: container.clientWidth,
         height: 500,
         layout: {
@@ -129,14 +137,18 @@ function initRealtimeChart() {
         }
     });
 
-    // 載入數據
-    loadChartData();
-    loadAnalysisLevels();
+        // 載入數據
+        loadChartData();
+        loadAnalysisLevels();
 
-    // 啟動自動更新
-    startChartAutoUpdate();
+        // 啟動自動更新
+        startChartAutoUpdate();
 
-    console.log('即時圖表初始化完成');
+        console.log('即時圖表初始化完成');
+    } catch (error) {
+        console.error('圖表初始化失敗:', error);
+        updateChartStatus('error', '初始化失敗: ' + error.message);
+    }
 }
 
 /**
@@ -168,18 +180,24 @@ async function loadChartData() {
     try {
         updateChartStatus('loading', '載入中...');
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
+
         const response = await fetch(
-            `${CHART_CONFIG.analysisApiUrl}/api/kbars/${symbol}?start=${today}&end=${today}&session=day`
+            `${CHART_CONFIG.analysisApiUrl}/api/kbars/${symbol}?start=${today}&end=${today}&session=day`,
+            { signal: controller.signal }
         );
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const result = await response.json();
 
         if (!result.success || !result.data || result.data.length === 0) {
-            updateChartStatus('nodata', '無數據（非交易時段）');
+            updateChartStatus('nodata', '無數據（非交易時段或週末）');
             return;
         }
 
@@ -211,7 +229,13 @@ async function loadChartData() {
 
     } catch (error) {
         console.error('載入 K 線數據失敗:', error);
-        updateChartStatus('error', '載入失敗');
+        if (error.name === 'AbortError') {
+            updateChartStatus('error', '連線超時');
+        } else if (error.message.includes('Failed to fetch')) {
+            updateChartStatus('error', 'API 無法連線');
+        } else {
+            updateChartStatus('error', '載入失敗: ' + error.message);
+        }
     }
 }
 
@@ -220,12 +244,18 @@ async function loadChartData() {
  */
 async function loadAnalysisLevels() {
     try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000);
+
         const response = await fetch(
-            `${CHART_CONFIG.analysisApiUrl}/api/analysis/levels?symbol=${currentChartSymbol}`
+            `${CHART_CONFIG.analysisApiUrl}/api/analysis/levels?symbol=${currentChartSymbol}`,
+            { signal: controller.signal }
         );
 
+        clearTimeout(timeoutId);
+
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
 
         const result = await response.json();
