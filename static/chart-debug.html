@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>圖表診斷工具</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0f0f23;
+            color: #e4e4e7;
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 { color: #00d9ff; }
+        .test-section {
+            background: #1a1a2e;
+            border: 1px solid #27272a;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1rem;
+        }
+        .test-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            margin: 0.5rem 0;
+            background: #27272a;
+            border-radius: 4px;
+        }
+        .status {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            margin-right: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+        .status.loading { background: #ffc107; }
+        .status.success { background: #00ff88; }
+        .status.error { background: #ff6b6b; }
+        .test-label { flex: 1; }
+        .test-result { 
+            font-family: 'Consolas', monospace; 
+            font-size: 0.85rem;
+            color: #a1a1aa;
+        }
+        button {
+            background: #00d9ff;
+            color: #0f0f23;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 1rem;
+        }
+        button:hover { background: #00b8d9; }
+        pre {
+            background: #0f0f23;
+            padding: 1rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+        }
+    </style>
+</head>
+<body>
+    <h1>📊 即時圖表診斷工具</h1>
+    
+    <div class="test-section">
+        <h2>1️⃣ CDN 資源檢查</h2>
+        <div class="test-item">
+            <div class="status loading" id="cdn-status">⏳</div>
+            <div class="test-label">Lightweight Charts CDN</div>
+            <div class="test-result" id="cdn-result">檢查中...</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>2️⃣ API 連線測試</h2>
+        <div class="test-item">
+            <div class="status loading" id="api-status">⏳</div>
+            <div class="test-label">Shioaji Proxy API</div>
+            <div class="test-result" id="api-result">檢查中...</div>
+        </div>
+        <div class="test-item">
+            <div class="status loading" id="kbar-status">⏳</div>
+            <div class="test-label">K線數據 API</div>
+            <div class="test-result" id="kbar-result">檢查中...</div>
+        </div>
+        <div class="test-item">
+            <div class="status loading" id="analysis-status">⏳</div>
+            <div class="test-label">支撐壓力分析 API</div>
+            <div class="test-result" id="analysis-result">檢查中...</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>3️⃣ 瀏覽器環境</h2>
+        <div class="test-item">
+            <div class="status success" id="browser-status">✓</div>
+            <div class="test-label">瀏覽器</div>
+            <div class="test-result" id="browser-result">-</div>
+        </div>
+        <div class="test-item">
+            <div class="status success" id="network-status">✓</div>
+            <div class="test-label">網路狀態</div>
+            <div class="test-result" id="network-result">-</div>
+        </div>
+    </div>
+
+    <div class="test-section">
+        <h2>4️⃣ 錯誤日誌</h2>
+        <pre id="error-log">無錯誤</pre>
+    </div>
+
+    <button onclick="runDiagnostics()">🔄 重新檢測</button>
+
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script>
+        const API_URL = 'https://tripple-f.zeabur.app';
+        const errors = [];
+
+        // 捕獲所有錯誤
+        window.addEventListener('error', (e) => {
+            errors.push(`[Error] ${e.message} at ${e.filename}:${e.lineno}`);
+            updateErrorLog();
+        });
+
+        window.addEventListener('unhandledrejection', (e) => {
+            errors.push(`[Promise Rejection] ${e.reason}`);
+            updateErrorLog();
+        });
+
+        function updateErrorLog() {
+            document.getElementById('error-log').textContent = 
+                errors.length > 0 ? errors.join('\n') : '無錯誤';
+        }
+
+        function setStatus(id, status, message) {
+            const statusEl = document.getElementById(id + '-status');
+            const resultEl = document.getElementById(id + '-result');
+            
+            statusEl.className = 'status ' + status;
+            statusEl.textContent = status === 'success' ? '✓' : status === 'error' ? '✗' : '⏳';
+            resultEl.textContent = message;
+        }
+
+        async function checkCDN() {
+            try {
+                if (typeof LightweightCharts !== 'undefined') {
+                    setStatus('cdn', 'success', '已載入 v' + (LightweightCharts.version || '4.1.0'));
+                } else {
+                    setStatus('cdn', 'error', '未載入 - 請檢查網路或防火牆');
+                }
+            } catch (error) {
+                setStatus('cdn', 'error', error.message);
+            }
+        }
+
+        async function checkAPI() {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(API_URL + '/health', { 
+                    signal: controller.signal 
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    setStatus('api', 'success', `HTTP ${response.status} - 連線正常`);
+                } else {
+                    setStatus('api', 'error', `HTTP ${response.status} - ${response.statusText}`);
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    setStatus('api', 'error', '連線超時 (>5秒)');
+                } else {
+                    setStatus('api', 'error', '無法連線 - ' + error.message);
+                }
+            }
+        }
+
+        async function checkKBarAPI() {
+            try {
+                const today = new Date().toISOString().split('T')[0];
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(
+                    `${API_URL}/api/kbars/TXF?start=${today}&end=${today}&session=day`,
+                    { signal: controller.signal }
+                );
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.data && data.data.length > 0) {
+                        setStatus('kbar', 'success', `取得 ${data.data.length} 筆數據`);
+                    } else {
+                        setStatus('kbar', 'error', '無數據 (非交易時段)');
+                    }
+                } else {
+                    setStatus('kbar', 'error', `HTTP ${response.status}`);
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    setStatus('kbar', 'error', '連線超時');
+                } else {
+                    setStatus('kbar', 'error', error.message);
+                }
+            }
+        }
+
+        async function checkAnalysisAPI() {
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+                
+                const response = await fetch(
+                    `${API_URL}/api/analysis/levels?symbol=TXF`,
+                    { signal: controller.signal }
+                );
+                
+                clearTimeout(timeoutId);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.success && data.data) {
+                        setStatus('analysis', 'success', '支撐壓力數據正常');
+                    } else {
+                        setStatus('analysis', 'error', '無數據');
+                    }
+                } else {
+                    setStatus('analysis', 'error', `HTTP ${response.status}`);
+                }
+            } catch (error) {
+                if (error.name === 'AbortError') {
+                    setStatus('analysis', 'error', '連線超時');
+                } else {
+                    setStatus('analysis', 'error', error.message);
+                }
+            }
+        }
+
+        function checkBrowser() {
+            const ua = navigator.userAgent;
+            let browser = 'Unknown';
+            
+            if (ua.includes('Chrome')) browser = 'Chrome';
+            else if (ua.includes('Firefox')) browser = 'Firefox';
+            else if (ua.includes('Safari')) browser = 'Safari';
+            else if (ua.includes('Edge')) browser = 'Edge';
+            
+            setStatus('browser', 'success', browser);
+            setStatus('network', navigator.onLine ? 'success' : 'error', 
+                     navigator.onLine ? '線上' : '離線');
+        }
+
+        async function runDiagnostics() {
+            errors.length = 0;
+            updateErrorLog();
+            
+            checkBrowser();
+            await checkCDN();
+            await checkAPI();
+            await checkKBarAPI();
+            await checkAnalysisAPI();
+        }
+
+        // 自動執行
+        runDiagnostics();
+    </script>
+</body>
+</html>
