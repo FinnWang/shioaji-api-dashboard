@@ -126,6 +126,32 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # 策略引擎 Worker - MA 均線交叉自動交易
+  strategy-worker:
+    build: .
+    command: python strategy_worker.py
+    env_file:
+      - .env
+    environment:
+      - STRATEGY_REDIS_URL=redis://redis:6379/0
+      - STRATEGY_SIMULATION=true
+    volumes:
+      # Mount source code for live updates (no rebuild needed)
+      - ./strategy_worker.py:/app/strategy_worker.py:ro
+      - ./strategy_config.py:/app/strategy_config.py:ro
+      - ./kline_builder.py:/app/kline_builder.py:ro
+      - ./strategy_engine.py:/app/strategy_engine.py:ro
+      - ./risk_manager.py:/app/risk_manager.py:ro
+      - ./position_manager.py:/app/position_manager.py:ro
+      - ./trading_queue.py:/app/trading_queue.py:ro
+      - ./config.py:/app/config.py:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      trading-worker:
+        condition: service_started
+    restart: unless-stopped
+
   redis:
     image: redis:7-alpine
     volumes:

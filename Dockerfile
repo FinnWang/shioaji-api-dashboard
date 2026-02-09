@@ -23,6 +23,12 @@ COPY quote_manager.py .
 COPY quote_storage.py .
 COPY websocket_manager.py .
 COPY analysis_levels_client.py .
+COPY strategy_config.py .
+COPY kline_builder.py .
+COPY strategy_engine.py .
+COPY risk_manager.py .
+COPY position_manager.py .
+COPY strategy_worker.py .
 COPY static/ ./static/
 
 # Expose port
