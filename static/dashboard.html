@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>自動交易控制台</title>
     <!-- Cache bust: bump version when files change -->
-    <link rel="stylesheet" href="/static/css/dashboard.css?v=7">
+    <link rel="stylesheet" href="/static/css/dashboard.css?v=8">
 </head>
 <body>
     <div class="container">
@@ -33,6 +33,7 @@
             <button class="tab" onclick="switchTab('limits')">📊 API 限制</button>
             <button class="tab" onclick="switchTab('webhook')">🔗 TradingView 設定</button>
             <button class="tab" onclick="switchTab('chart')">📈 即時圖表</button>
+            <button class="tab" onclick="switchTab('strategy')">🤖 策略監控</button>
         </div>
         
         <!-- Trading Tab (NEW) -->
@@ -848,6 +849,50 @@ if (strategy.position_size < 0)
                 </ul>
             </div>
         </div>
+
+        <!-- Strategy Monitor Tab -->
+        <div id="strategy-tab" class="tab-content">
+            <!-- 策略狀態卡片區 -->
+            <div class="strategy-status-cards">
+                <div class="strategy-card">
+                    <div class="strategy-card-label">商品</div>
+                    <div class="strategy-card-value" id="strategySymbol">--</div>
+                </div>
+                <div class="strategy-card">
+                    <div class="strategy-card-label">策略</div>
+                    <div class="strategy-card-value" id="strategyName">MA 均線交叉</div>
+                </div>
+                <div class="strategy-card">
+                    <div class="strategy-card-label">持倉方向</div>
+                    <div class="strategy-card-value" id="strategyDirection">
+                        <span class="strategy-direction flat">空倉</span>
+                    </div>
+                </div>
+                <div class="strategy-card">
+                    <div class="strategy-card-label">進場成本</div>
+                    <div class="strategy-card-value" id="strategyEntryPrice">--</div>
+                </div>
+                <div class="strategy-card">
+                    <div class="strategy-card-label">未實現損益</div>
+                    <div class="strategy-card-value" id="strategyUnrealizedPnl">--</div>
+                </div>
+                <div class="strategy-card">
+                    <div class="strategy-card-label">今日損益</div>
+                    <div class="strategy-card-value" id="strategyDailyPnl">--</div>
+                </div>
+            </div>
+
+            <!-- 事件日誌 -->
+            <div class="strategy-log-section">
+                <div class="strategy-log-header">
+                    <h3>策略事件日誌</h3>
+                    <button class="btn-small" onclick="clearStrategyLog()">清除日誌</button>
+                </div>
+                <div class="strategy-log-container" id="strategyLogContainer">
+                    <div class="strategy-log-empty">等待策略事件...</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Lightweight Charts CDN -->
@@ -856,6 +901,6 @@ if (strategy.position_size < 0)
     <!-- Cache bust: bump version when files change -->
     <script src="/static/js/dateUtils.js?v=1"></script>
     <script src="/static/js/realtime-chart-local.js?v=1"></script>
-    <script src="/static/js/dashboard.js?v=12"></script>
+    <script src="/static/js/dashboard.js?v=13"></script>
 </body>
 </html>

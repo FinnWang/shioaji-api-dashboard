@@ -24,7 +24,7 @@ import redis
 
 from strategy_config import StrategySettings
 from kline_builder import KLineBuilder, KLine
-from strategy_engine import StrategyEngine, SignalAction, PositionDirection
+from strategy_engine import StrategyEngine, SignalAction, PositionDirection, calculate_sma
 from risk_manager import RiskManager, StopReason
 from position_manager import PositionManager
 from trading_queue import TradingQueueClient
@@ -40,6 +40,7 @@ logger = logging.getLogger("strategy_worker")
 # Redis 持久化鍵
 STATE_KEY_PREFIX = "strategy:state:"
 QUOTE_CHANNEL_PREFIX = "quote:"
+STRATEGY_EVENT_CHANNEL_PREFIX = "strategy:events:"
 
 # 交易時段定義
 DAY_SESSION_START = dtime(8, 45)
@@ -287,6 +288,21 @@ class StrategyWorker:
             f"歷史K線數={len(close_prices)}"
         )
 
+        # 發布 K 線完成事件
+        ma_fast_val = calculate_sma(close_prices, self.settings.ma_fast_period)
+        ma_slow_val = calculate_sma(close_prices, self.settings.ma_slow_period)
+        self._publish_event("kline_complete", {
+            "open": kline.open,
+            "high": kline.high,
+            "low": kline.low,
+            "close": kline.close,
+            "volume": kline.volume,
+            "start_time": str(kline.start_time),
+            "ma_fast": ma_fast_val,
+            "ma_slow": ma_slow_val,
+            "kline_count": len(close_prices),
+        })
+
         # 確定當前持倉方向
         direction = self._position_manager.direction
         pos_dir = PositionDirection(direction)
@@ -314,6 +330,15 @@ class StrategyWorker:
         處理進場、平倉和反轉邏輯。
         反轉時先平倉，再設定 _pending_reverse 等待下次 tick 開倉。
         """
+        # 發布訊號事件
+        self._publish_event("signal", {
+            "action": signal.action.value,
+            "reason": signal.reason,
+            "ma_fast": signal.ma_fast,
+            "ma_slow": signal.ma_slow,
+            "price": current_price,
+        })
+
         if signal.action == SignalAction.BUY:
             self._place_entry("long", current_price)
 
@@ -358,6 +383,13 @@ class StrategyWorker:
                 self._position_manager.open_position(direction, price)
                 self._risk_manager.on_entry(price, direction)
                 logger.info(f"進場成功: {direction} @ {price}")
+
+                # 發布進場事件
+                self._publish_event("entry", {
+                    "direction": direction,
+                    "price": price,
+                    "quantity": self.settings.quantity,
+                })
             else:
                 logger.error(f"進場下單失敗: {response.error}")
 
@@ -391,6 +423,13 @@ class StrategyWorker:
                 self._risk_manager.on_exit(price)
                 logger.info(f"平倉成功: 損益={pnl:.1f} 點")
 
+                # 發布出場事件
+                self._publish_event("exit", {
+                    "price": price,
+                    "pnl": round(pnl, 1),
+                    "direction": direction,
+                })
+
                 # 處理反轉
                 if self._pending_reverse:
                     reverse_dir = self._pending_reverse
@@ -413,6 +452,14 @@ class StrategyWorker:
         stop_reason = self._risk_manager.check_stop_loss(current_price)
         if stop_reason is not None:
             logger.warning(f"停損觸發: {stop_reason.value} @ {current_price}")
+
+            # 發布停損事件
+            self._publish_event("stop_loss", {
+                "reason": stop_reason.value,
+                "price": current_price,
+                "direction": self._position_manager.direction,
+            })
+
             self._pending_reverse = None  # 停損不做反轉
             self._place_exit(current_price)
 
@@ -427,6 +474,27 @@ class StrategyWorker:
             logger.info(f"新交易日: {today}，重設每日統計")
             self._risk_manager.reset_daily()
             self._last_reset_date = today
+
+    def _publish_event(self, event_type: str, data: dict) -> None:
+        """
+        發布策略事件到 Redis Pub/Sub
+
+        Args:
+            event_type: 事件類型 (kline_complete, signal, entry, exit, stop_loss)
+            data: 事件資料
+        """
+        try:
+            channel = f"{STRATEGY_EVENT_CHANNEL_PREFIX}{self.settings.symbol}"
+            event = {
+                "event_type": event_type,
+                "symbol": self.settings.symbol,
+                "timestamp": int(time.time() * 1000),
+                "data": data,
+            }
+            self._redis.publish(channel, json.dumps(event))
+            logger.debug(f"策略事件已發布: {event_type}")
+        except Exception as e:
+            logger.error(f"發布策略事件失敗: {e}")
 
     def _main_loop_tick(self) -> None:
         """主循環每秒執行的任務"""

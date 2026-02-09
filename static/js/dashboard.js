@@ -1712,6 +1712,10 @@ function handleWsMessage(message) {
             handleQuoteUpdate(message.symbol, message.data);
             break;
 
+        case 'strategy_event':
+            handleStrategyEvent(message.data);
+            break;
+
         case 'pong':
             // 心跳回應
             break;
@@ -1951,4 +1955,198 @@ onSymbolChange = async function() {
 
     // 同步圖表商品
     syncChartSymbol();
+};
+
+
+// ===== 策略監控功能 =====
+
+const STRATEGY_LOG_MAX = 200;
+let strategyLogCount = 0;
+let strategyDailyPnlAccum = 0;
+
+// 事件類型顏色與標籤
+const STRATEGY_EVENT_STYLES = {
+    kline_complete: { label: 'K線',   color: '#a1a1aa', bg: 'rgba(161,161,170,0.2)' },
+    signal:         { label: '訊號',   color: '#00d9ff', bg: 'rgba(0,217,255,0.2)' },
+    entry:          { label: '進場',   color: '#00ff88', bg: 'rgba(0,255,136,0.2)' },
+    exit:           { label: '出場',   color: '#fb923c', bg: 'rgba(251,146,60,0.2)' },
+    stop_loss:      { label: '停損',   color: '#ff6b6b', bg: 'rgba(255,107,107,0.2)' },
+};
+
+/**
+ * 處理策略事件
+ */
+function handleStrategyEvent(event) {
+    if (!event) return;
+
+    const eventType = event.event_type;
+    const symbol = event.symbol;
+    const data = event.data || {};
+
+    // 更新策略狀態卡片
+    updateStrategyStatusCards(eventType, symbol, data);
+
+    // 新增日誌項目
+    addStrategyLog(event);
+}
+
+/**
+ * 更新策略狀態卡片
+ */
+function updateStrategyStatusCards(eventType, symbol, data) {
+    // 更新商品
+    const symbolEl = document.getElementById('strategySymbol');
+    if (symbolEl && symbol) {
+        symbolEl.textContent = symbol;
+    }
+
+    const dirEl = document.getElementById('strategyDirection');
+    const entryEl = document.getElementById('strategyEntryPrice');
+    const unrealizedEl = document.getElementById('strategyUnrealizedPnl');
+    const dailyEl = document.getElementById('strategyDailyPnl');
+
+    if (eventType === 'entry') {
+        // 進場：更新方向和成本
+        if (dirEl) {
+            const isLong = data.direction === 'long';
+            const dirClass = isLong ? 'long' : 'short';
+            const dirText = isLong ? '做多' : '做空';
+            dirEl.innerHTML = `<span class="strategy-direction ${dirClass}">${dirText}</span>`;
+        }
+        if (entryEl) {
+            entryEl.textContent = data.price?.toLocaleString() || '--';
+        }
+        if (unrealizedEl) {
+            unrealizedEl.textContent = '0';
+            unrealizedEl.className = 'strategy-card-value';
+        }
+    } else if (eventType === 'exit') {
+        // 出場：清除持倉，累計每日損益
+        if (dirEl) {
+            dirEl.innerHTML = '<span class="strategy-direction flat">空倉</span>';
+        }
+        if (entryEl) {
+            entryEl.textContent = '--';
+        }
+        if (unrealizedEl) {
+            unrealizedEl.textContent = '--';
+            unrealizedEl.className = 'strategy-card-value';
+        }
+        if (dailyEl && data.pnl !== undefined) {
+            strategyDailyPnlAccum += data.pnl;
+            const sign = strategyDailyPnlAccum >= 0 ? '+' : '';
+            dailyEl.textContent = `${sign}${strategyDailyPnlAccum.toFixed(1)} 點`;
+            dailyEl.className = 'strategy-card-value ' +
+                (strategyDailyPnlAccum >= 0 ? 'pnl-positive' : 'pnl-negative');
+        }
+    } else if (eventType === 'stop_loss') {
+        // 停損觸發時不更新卡片，exit 事件會處理
+    }
+}
+
+/**
+ * 新增策略日誌項目
+ */
+function addStrategyLog(event) {
+    const container = document.getElementById('strategyLogContainer');
+    if (!container) return;
+
+    // 移除空白提示
+    const emptyEl = container.querySelector('.strategy-log-empty');
+    if (emptyEl) emptyEl.remove();
+
+    const eventType = event.event_type;
+    const data = event.data || {};
+    const style = STRATEGY_EVENT_STYLES[eventType] || STRATEGY_EVENT_STYLES.kline_complete;
+
+    // 格式化時間
+    const ts = event.timestamp ? new Date(event.timestamp) : new Date();
+    const timeStr = ts.toLocaleTimeString('zh-TW', { hour12: false });
+
+    // 建立描述文字
+    const desc = formatStrategyEventDesc(eventType, data);
+
+    // 建立日誌項目
+    const logItem = document.createElement('div');
+    logItem.className = 'strategy-log-item';
+    logItem.innerHTML = `
+        <span class="strategy-log-time">${timeStr}</span>
+        <span class="strategy-log-tag" style="color:${style.color};background:${style.bg}">${style.label}</span>
+        <span class="strategy-log-desc">${desc}</span>
+    `;
+
+    // 最新在上方
+    container.prepend(logItem);
+
+    // 超過上限移除最舊
+    strategyLogCount++;
+    if (strategyLogCount > STRATEGY_LOG_MAX) {
+        const items = container.querySelectorAll('.strategy-log-item');
+        if (items.length > STRATEGY_LOG_MAX) {
+            items[items.length - 1].remove();
+            strategyLogCount = STRATEGY_LOG_MAX;
+        }
+    }
+}
+
+/**
+ * 格式化策略事件描述
+ */
+function formatStrategyEventDesc(eventType, data) {
+    switch (eventType) {
+        case 'kline_complete': {
+            const ma = [];
+            if (data.ma_fast != null) ma.push(`MA快=${data.ma_fast.toFixed(1)}`);
+            if (data.ma_slow != null) ma.push(`MA慢=${data.ma_slow.toFixed(1)}`);
+            return `O=${data.open} H=${data.high} L=${data.low} C=${data.close}` +
+                (ma.length ? ` | ${ma.join(' ')}` : '') +
+                ` | K線數=${data.kline_count || '--'}`;
+        }
+        case 'signal': {
+            const actionMap = { Buy: '做多', Sell: '做空', close: '平倉' };
+            const actionText = actionMap[data.action] || data.action;
+            return `${actionText} - ${data.reason || ''}` +
+                ` @ ${data.price?.toLocaleString() || '--'}`;
+        }
+        case 'entry': {
+            const dirText = data.direction === 'long' ? '做多' : '做空';
+            return `${dirText} ${data.quantity || 1}口 @ ${data.price?.toLocaleString() || '--'}`;
+        }
+        case 'exit': {
+            const pnl = data.pnl != null ? data.pnl.toFixed(1) : '--';
+            const pnlColor = data.pnl >= 0 ? '#00ff88' : '#ff6b6b';
+            return `平倉 @ ${data.price?.toLocaleString() || '--'} ` +
+                `| 損益 <span style="color:${pnlColor};font-weight:600">${pnl} 點</span>`;
+        }
+        case 'stop_loss': {
+            return `<span style="color:#ff6b6b;font-weight:600">${data.reason || '停損'}</span>` +
+                ` @ ${data.price?.toLocaleString() || '--'}`;
+        }
+        default:
+            return JSON.stringify(data);
+    }
+}
+
+/**
+ * 清除策略日誌
+ */
+function clearStrategyLog() {
+    const container = document.getElementById('strategyLogContainer');
+    if (container) {
+        container.innerHTML = '<div class="strategy-log-empty">等待策略事件...</div>';
+        strategyLogCount = 0;
+    }
+}
+
+// 擴展 switchTab 以支援策略監控分頁
+const originalSwitchTabForStrategy = switchTab;
+switchTab = function(tab) {
+    originalSwitchTabForStrategy(tab);
+
+    // 切到策略監控分頁時，確保 WebSocket 已連線
+    if (tab === 'strategy') {
+        if (!quoteWebSocket || quoteWebSocket.readyState !== WebSocket.OPEN) {
+            initQuoteWebSocket();
+        }
+    }
 };

@@ -2196,3 +2196,203 @@ td { vertical-align: middle; }
         font-size: 0.85rem;
     }
 }
+
+
+/* ===== 策略監控 Tab 樣式 ===== */
+
+/* 策略狀態卡片區 */
+.strategy-status-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.strategy-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+    text-align: center;
+}
+
+.strategy-card-label {
+    font-size: 0.8rem;
+    color: #a1a1aa;
+    margin-bottom: 0.5rem;
+}
+
+.strategy-card-value {
+    font-size: 1.4rem;
+    font-weight: 700;
+    font-family: 'Consolas', monospace;
+    color: #e4e4e7;
+}
+
+/* 持倉方向標籤 */
+.strategy-direction {
+    display: inline-block;
+    padding: 0.3rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    font-weight: 600;
+}
+
+.strategy-direction.long {
+    background: rgba(0, 255, 136, 0.2);
+    color: #00ff88;
+}
+
+.strategy-direction.short {
+    background: rgba(255, 107, 107, 0.2);
+    color: #ff6b6b;
+}
+
+.strategy-direction.flat {
+    background: rgba(161, 161, 170, 0.15);
+    color: #a1a1aa;
+}
+
+/* 事件日誌區域 */
+.strategy-log-section {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+.strategy-log-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.strategy-log-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #e4e4e7;
+}
+
+.strategy-log-container {
+    max-height: 600px;
+    overflow-y: auto;
+}
+
+.strategy-log-empty {
+    text-align: center;
+    color: #71717a;
+    padding: 3rem 1rem;
+    font-size: 0.9rem;
+}
+
+/* 日誌項目 */
+.strategy-log-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    animation: fadeIn 0.3s ease;
+}
+
+.strategy-log-item:first-child {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.strategy-log-time {
+    font-size: 0.75rem;
+    color: #71717a;
+    font-family: 'Consolas', monospace;
+    white-space: nowrap;
+    min-width: 60px;
+    padding-top: 0.15rem;
+}
+
+.strategy-log-tag {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    white-space: nowrap;
+    min-width: 36px;
+    text-align: center;
+}
+
+.strategy-log-desc {
+    font-size: 0.85rem;
+    color: #e4e4e7;
+    line-height: 1.5;
+    flex: 1;
+    font-family: 'Consolas', monospace;
+}
+
+/* 響應式 */
+@media (max-width: 768px) {
+    .strategy-status-cards {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.75rem;
+    }
+
+    .strategy-card {
+        padding: 1rem;
+    }
+
+    .strategy-card-value {
+        font-size: 1.1rem;
+    }
+
+    .strategy-log-container {
+        max-height: 400px;
+    }
+
+    .strategy-log-item {
+        gap: 0.5rem;
+        padding: 0.5rem;
+    }
+
+    .strategy-log-desc {
+        font-size: 0.8rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .strategy-status-cards {
+        grid-template-columns: 1fr 1fr;
+        gap: 0.5rem;
+    }
+
+    .strategy-card {
+        padding: 0.75rem;
+    }
+
+    .strategy-card-label {
+        font-size: 0.7rem;
+    }
+
+    .strategy-card-value {
+        font-size: 1rem;
+    }
+
+    .strategy-log-time {
+        font-size: 0.65rem;
+        min-width: 50px;
+    }
+
+    .strategy-log-tag {
+        font-size: 0.65rem;
+        padding: 0.1rem 0.35rem;
+    }
+
+    .strategy-log-desc {
+        font-size: 0.75rem;
+    }
+}

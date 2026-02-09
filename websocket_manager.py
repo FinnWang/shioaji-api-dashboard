@@ -20,6 +20,8 @@ import redis.asyncio as aioredis
 
 from quote_manager import QUOTE_CHANNEL_PREFIX
 
+STRATEGY_CHANNEL_PREFIX = "strategy:events:"
+
 logger = logging.getLogger(__name__)
 
 
@@ -244,7 +246,20 @@ class WebSocketManager:
             data: 訊息資料（JSON 字串）
         """
         try:
-            # 解析 channel 取得 symbol
+            # 策略事件頻道
+            if channel.startswith(STRATEGY_CHANNEL_PREFIX):
+                event_data = json.loads(data)
+                message = {
+                    "type": "strategy_event",
+                    "data": event_data,
+                }
+                logger.debug(
+                    f"[Redis] 收到策略事件: {event_data.get('event_type')}"
+                )
+                await self.broadcast_all(message)
+                return
+
+            # 報價頻道
             if not channel.startswith(QUOTE_CHANNEL_PREFIX):
                 return
 
@@ -290,10 +305,14 @@ class WebSocketManager:
         pubsub = self._redis.pubsub()
 
         # 訂閱所有報價頻道
-        pattern = f"{QUOTE_CHANNEL_PREFIX}*"
-        await pubsub.psubscribe(pattern)
+        quote_pattern = f"{QUOTE_CHANNEL_PREFIX}*"
+        strategy_pattern = f"{STRATEGY_CHANNEL_PREFIX}*"
+        await pubsub.psubscribe(quote_pattern, strategy_pattern)
 
-        logger.info(f"開始監聽 Redis Pub/Sub pattern: {pattern}")
+        logger.info(
+            f"開始監聽 Redis Pub/Sub patterns: "
+            f"{quote_pattern}, {strategy_pattern}"
+        )
 
         try:
             while self._running:
@@ -323,7 +342,7 @@ class WebSocketManager:
         except Exception as e:
             logger.error(f"Redis Pub/Sub 監聽錯誤: {e}")
         finally:
-            await pubsub.punsubscribe(pattern)
+            await pubsub.punsubscribe(quote_pattern, strategy_pattern)
             await pubsub.close()
             logger.info("Redis Pub/Sub 監聽已停止")
 
