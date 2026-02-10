@@ -22,7 +22,7 @@ import redis.asyncio as aioredis
 
 from config import settings
 from database import get_db, SessionLocal
-from models import OrderHistory, QuoteHistory
+from models import OrderHistory, QuoteHistory, StrategyEvent, StrategyTrade
 from status_mapper import OrderStatusMapper
 from trading_queue import get_queue_client, TradingQueueClient
 from websocket_manager import WebSocketManager
@@ -1198,6 +1198,72 @@ async def export_quote_history(
     )
 
 
+@app.get("/quotes/intraday/{symbol}")
+async def get_intraday_data(
+    symbol: str,
+    db: Session = Depends(get_db),
+):
+    """
+    取得當日分時資料（分鐘 OHLCV）
+
+    從 quote_history 表查詢今日 tick 資料，在 SQL 層按分鐘聚合，
+    回傳按時間升序排列的分鐘 K 線資料。
+    使用台灣時區 (UTC+8) 計算「今日」範圍，避免 Docker UTC 環境的時區偏移。
+    """
+    from datetime import timedelta
+
+    # 使用台灣時區計算今日範圍（避免 Docker UTC 環境的時區問題）
+    tw_tz = timezone(timedelta(hours=8))
+    now_tw = datetime.now(tw_tz)
+    today_start = now_tw.replace(hour=0, minute=0, second=0, microsecond=0)
+    tomorrow_start = today_start + timedelta(days=1)
+
+    # 按分鐘聚合查詢（使用台灣時區做 date_trunc）
+    minute_data = db.execute(
+        text("""
+            SELECT
+                date_trunc('minute', quote_time AT TIME ZONE 'Asia/Taipei') AS minute_time,
+                (array_agg(close_price ORDER BY quote_time ASC))[1] AS open,
+                MAX(CASE WHEN high_price IS NOT NULL THEN high_price ELSE close_price END) AS high,
+                MIN(CASE WHEN low_price IS NOT NULL THEN low_price ELSE close_price END) AS low,
+                (array_agg(close_price ORDER BY quote_time DESC))[1] AS close,
+                SUM(COALESCE(volume, 0)) AS volume,
+                (array_agg(change_price ORDER BY quote_time DESC))[1] AS change_price,
+                (array_agg(change_rate ORDER BY quote_time DESC))[1] AS change_rate
+            FROM quote_history
+            WHERE symbol = :symbol
+              AND quote_type = 'tick'
+              AND quote_time >= :start_time
+              AND quote_time < :end_time
+              AND close_price IS NOT NULL
+            GROUP BY date_trunc('minute', quote_time AT TIME ZONE 'Asia/Taipei')
+            ORDER BY minute_time ASC
+        """),
+        {"symbol": symbol, "start_time": today_start, "end_time": tomorrow_start}
+    ).fetchall()
+
+    data = []
+    for row in minute_data:
+        data.append({
+            "time": row[0].isoformat() if row[0] else None,
+            "open": float(row[1]) if row[1] else None,
+            "high": float(row[2]) if row[2] else None,
+            "low": float(row[3]) if row[3] else None,
+            "close": float(row[4]) if row[4] else None,
+            "volume": int(row[5]) if row[5] else 0,
+            "change_price": float(row[6]) if row[6] else None,
+            "change_rate": float(row[7]) if row[7] else None,
+        })
+
+    return {
+        "success": True,
+        "symbol": symbol,
+        "date": now_tw.date().isoformat(),
+        "count": len(data),
+        "data": data,
+    }
+
+
 @app.get("/quotes/symbols")
 async def get_quote_symbols(
     db: Session = Depends(get_db),
@@ -1499,3 +1565,266 @@ async def get_websocket_stats():
         "connection_count": ws_manager.get_connection_count(),
         "subscribed_symbols": list(ws_manager.get_all_subscribed_symbols()),
     }
+
+
+# ==================== 策略復盤 API ====================
+
+@app.get("/strategy/events")
+async def get_strategy_events(
+    db: Session = Depends(get_db),
+    symbol: Optional[str] = Query(None, description="篩選商品代碼"),
+    event_type: Optional[str] = Query(None, description="篩選事件類型: signal, entry, exit, stop_loss, kline_complete"),
+    start_date: Optional[datetime] = Query(None, description="起始時間"),
+    end_date: Optional[datetime] = Query(None, description="結束時間"),
+    limit: int = Query(100, ge=1, le=1000, description="回傳筆數上限"),
+    offset: int = Query(0, ge=0, description="分頁偏移量"),
+):
+    """
+    查詢策略事件歷史
+
+    支援依商品代碼、事件類型、時間範圍篩選。
+    """
+    query = db.query(StrategyEvent)
+
+    if symbol:
+        query = query.filter(StrategyEvent.symbol == symbol)
+    if event_type:
+        query = query.filter(StrategyEvent.event_type == event_type)
+    if start_date:
+        query = query.filter(StrategyEvent.event_time >= start_date)
+    if end_date:
+        query = query.filter(StrategyEvent.event_time <= end_date)
+
+    events = query.order_by(StrategyEvent.event_time.desc()).offset(offset).limit(limit).all()
+    return [e.to_dict() for e in events]
+
+
+@app.get("/strategy/trades")
+async def get_strategy_trades(
+    db: Session = Depends(get_db),
+    symbol: Optional[str] = Query(None, description="篩選商品代碼"),
+    status: Optional[str] = Query(None, description="篩選狀態: open, closed"),
+    start_date: Optional[datetime] = Query(None, description="起始時間"),
+    end_date: Optional[datetime] = Query(None, description="結束時間"),
+    limit: int = Query(100, ge=1, le=1000, description="回傳筆數上限"),
+    offset: int = Query(0, ge=0, description="分頁偏移量"),
+):
+    """
+    查詢策略交易回合
+
+    支援依商品、狀態、時間範圍篩選。每筆包含進出場資訊和損益。
+    """
+    query = db.query(StrategyTrade)
+
+    if symbol:
+        query = query.filter(StrategyTrade.symbol == symbol)
+    if status:
+        query = query.filter(StrategyTrade.status == status)
+    if start_date:
+        query = query.filter(StrategyTrade.entry_time >= start_date)
+    if end_date:
+        query = query.filter(StrategyTrade.entry_time <= end_date)
+
+    trades = query.order_by(StrategyTrade.entry_time.desc()).offset(offset).limit(limit).all()
+    return [t.to_dict() for t in trades]
+
+
+def _calculate_performance(trades: list[StrategyTrade]) -> dict:
+    """
+    計算策略績效指標
+
+    Args:
+        trades: 已平倉的交易回合列表
+
+    Returns:
+        績效指標字典
+    """
+    if not trades:
+        return {
+            "total_trades": 0,
+            "winning_trades": 0,
+            "losing_trades": 0,
+            "win_rate": 0,
+            "total_pnl": 0,
+            "avg_pnl": 0,
+            "avg_win": 0,
+            "avg_loss": 0,
+            "profit_factor": 0,
+            "max_drawdown": 0,
+            "max_consecutive_wins": 0,
+            "max_consecutive_losses": 0,
+            "avg_duration_seconds": 0,
+            "sharpe_ratio": 0,
+        }
+
+    pnls = [float(t.pnl) for t in trades if t.pnl is not None]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+
+    total_trades = len(pnls)
+    winning_trades = len(wins)
+    losing_trades = len(losses)
+    win_rate = (winning_trades / total_trades * 100) if total_trades > 0 else 0
+
+    total_pnl = sum(pnls)
+    avg_pnl = total_pnl / total_trades if total_trades > 0 else 0
+    avg_win = sum(wins) / winning_trades if winning_trades > 0 else 0
+    avg_loss = sum(losses) / losing_trades if losing_trades > 0 else 0
+
+    total_win = sum(wins)
+    total_loss = abs(sum(losses))
+    profit_factor = total_win / total_loss if total_loss > 0 else float('inf') if total_win > 0 else 0
+
+    # 最大回撤
+    cumulative = 0.0
+    peak = 0.0
+    max_drawdown = 0.0
+    for p in pnls:
+        cumulative += p
+        if cumulative > peak:
+            peak = cumulative
+        drawdown = peak - cumulative
+        if drawdown > max_drawdown:
+            max_drawdown = drawdown
+
+    # 最大連續獲利/虧損次數
+    max_consecutive_wins = 0
+    max_consecutive_losses = 0
+    current_wins = 0
+    current_losses = 0
+    for p in pnls:
+        if p > 0:
+            current_wins += 1
+            current_losses = 0
+            max_consecutive_wins = max(max_consecutive_wins, current_wins)
+        elif p < 0:
+            current_losses += 1
+            current_wins = 0
+            max_consecutive_losses = max(max_consecutive_losses, current_losses)
+        else:
+            current_wins = 0
+            current_losses = 0
+
+    # 平均持倉時間
+    durations = []
+    for t in trades:
+        if t.entry_time and t.exit_time:
+            durations.append((t.exit_time - t.entry_time).total_seconds())
+    avg_duration = sum(durations) / len(durations) if durations else 0
+
+    # 夏普比率（以每筆交易計算，假設無風險利率為 0）
+    sharpe_ratio = 0.0
+    if len(pnls) > 1:
+        import statistics
+        pnl_std = statistics.stdev(pnls)
+        if pnl_std > 0:
+            sharpe_ratio = round(avg_pnl / pnl_std, 4)
+
+    return {
+        "total_trades": total_trades,
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "win_rate": round(win_rate, 2),
+        "total_pnl": round(total_pnl, 2),
+        "avg_pnl": round(avg_pnl, 2),
+        "avg_win": round(avg_win, 2),
+        "avg_loss": round(avg_loss, 2),
+        "profit_factor": round(profit_factor, 4) if profit_factor != float('inf') else None,
+        "max_drawdown": round(max_drawdown, 2),
+        "max_consecutive_wins": max_consecutive_wins,
+        "max_consecutive_losses": max_consecutive_losses,
+        "avg_duration_seconds": round(avg_duration, 1),
+        "sharpe_ratio": sharpe_ratio,
+    }
+
+
+@app.get("/strategy/performance")
+async def get_strategy_performance(
+    db: Session = Depends(get_db),
+    symbol: Optional[str] = Query(None, description="篩選商品代碼"),
+    start_date: Optional[datetime] = Query(None, description="起始時間"),
+    end_date: Optional[datetime] = Query(None, description="結束時間"),
+):
+    """
+    取得策略績效摘要
+
+    計算勝率、總損益、最大回撤、獲利因子、夏普比率等指標。
+    """
+    query = db.query(StrategyTrade).filter(StrategyTrade.status == "closed")
+
+    if symbol:
+        query = query.filter(StrategyTrade.symbol == symbol)
+    if start_date:
+        query = query.filter(StrategyTrade.entry_time >= start_date)
+    if end_date:
+        query = query.filter(StrategyTrade.entry_time <= end_date)
+
+    trades = query.order_by(StrategyTrade.entry_time.asc()).all()
+    return _calculate_performance(trades)
+
+
+@app.get("/strategy/daily-summary")
+async def get_strategy_daily_summary(
+    db: Session = Depends(get_db),
+    symbol: Optional[str] = Query(None, description="篩選商品代碼"),
+    start_date: Optional[datetime] = Query(None, description="起始時間"),
+    end_date: Optional[datetime] = Query(None, description="結束時間"),
+):
+    """
+    取得策略每日損益摘要
+
+    按日聚合交易次數、勝率和損益，並計算累計損益曲線。
+    """
+    from datetime import timedelta
+
+    query = db.query(StrategyTrade).filter(StrategyTrade.status == "closed")
+
+    if symbol:
+        query = query.filter(StrategyTrade.symbol == symbol)
+    if start_date:
+        query = query.filter(StrategyTrade.entry_time >= start_date)
+    if end_date:
+        query = query.filter(StrategyTrade.entry_time <= end_date)
+
+    trades = query.order_by(StrategyTrade.entry_time.asc()).all()
+
+    # 使用台灣時區分組
+    tw_tz = timezone(timedelta(hours=8))
+
+    daily_map: dict[str, dict] = {}
+    for trade in trades:
+        if trade.entry_time is None:
+            continue
+        # 轉換為台灣時區日期
+        entry_tw = trade.entry_time.astimezone(tw_tz) if trade.entry_time.tzinfo else trade.entry_time
+        date_key = entry_tw.strftime("%Y-%m-%d")
+
+        if date_key not in daily_map:
+            daily_map[date_key] = {
+                "date": date_key,
+                "trade_count": 0,
+                "winning_trades": 0,
+                "losing_trades": 0,
+                "total_pnl": 0.0,
+            }
+
+        day = daily_map[date_key]
+        day["trade_count"] += 1
+        pnl = float(trade.pnl) if trade.pnl is not None else 0
+        day["total_pnl"] += pnl
+        if pnl > 0:
+            day["winning_trades"] += 1
+        elif pnl < 0:
+            day["losing_trades"] += 1
+
+    # 計算累計損益
+    result = []
+    cumulative_pnl = 0.0
+    for date_key in sorted(daily_map.keys()):
+        day = daily_map[date_key]
+        day["total_pnl"] = round(day["total_pnl"], 2)
+        cumulative_pnl += day["total_pnl"]
+        day["cumulative_pnl"] = round(cumulative_pnl, 2)
+        result.append(day)
+
+    return result

@@ -2396,3 +2396,275 @@ td { vertical-align: middle; }
         font-size: 0.75rem;
     }
 }
+
+
+/* ==================== 策略圖表區域 ==================== */
+
+.strategy-chart-section {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.strategy-chart-section h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+    color: #e4e4e7;
+}
+
+.strategy-chart-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
+.strategy-chart-container {
+    width: 100%;
+    height: 400px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.strategy-bottom-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.strategy-pnl-section {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+}
+
+.strategy-pnl-section h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+    color: #e4e4e7;
+}
+
+.strategy-pnl-container {
+    width: 100%;
+    height: 200px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+
+/* ==================== 復盤分頁 ==================== */
+
+.review-controls {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.review-controls-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.review-controls label {
+    font-size: 0.85rem;
+    color: #a1a1aa;
+}
+
+.review-controls input[type="date"] {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 8px;
+    color: #e4e4e7;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.85rem;
+}
+
+.review-controls input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #00d9ff, #0091ff);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 0.5rem 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity 0.2s;
+}
+
+.btn-primary:hover {
+    opacity: 0.85;
+}
+
+.review-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+}
+
+.review-card {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    text-align: center;
+}
+
+.review-card-label {
+    font-size: 0.75rem;
+    color: #71717a;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+}
+
+.review-card-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #e4e4e7;
+    font-family: 'Consolas', 'SF Mono', monospace;
+}
+
+.review-card-value.pnl-positive {
+    color: #00ff88;
+}
+
+.review-card-value.pnl-negative {
+    color: #ff6b6b;
+}
+
+.review-chart-section {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.review-chart-section h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+    color: #e4e4e7;
+}
+
+.review-chart-container {
+    width: 100%;
+    height: 300px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.review-chart-container-small {
+    width: 100%;
+    height: 200px;
+    border-radius: 8px;
+    overflow: hidden;
+}
+
+.review-trades-section {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+}
+
+.review-trades-section h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.95rem;
+    color: #e4e4e7;
+}
+
+.review-trades-table-wrapper {
+    overflow-x: auto;
+}
+
+.review-trades-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+
+.review-trades-table thead th {
+    background: rgba(255, 255, 255, 0.08);
+    color: #a1a1aa;
+    padding: 0.6rem 0.75rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.review-trades-table tbody td {
+    padding: 0.6rem 0.75rem;
+    color: #e4e4e7;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    white-space: nowrap;
+    font-family: 'Consolas', 'SF Mono', monospace;
+    font-size: 0.8rem;
+}
+
+.review-trades-table tbody tr:hover {
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.review-empty {
+    text-align: center;
+    color: #71717a;
+    padding: 2rem !important;
+    font-style: italic;
+}
+
+.trade-long {
+    color: #00ff88;
+    font-weight: 600;
+}
+
+.trade-short {
+    color: #ff6b6b;
+    font-weight: 600;
+}
+
+/* 響應式：策略圖表 */
+@media (max-width: 768px) {
+    .strategy-bottom-row {
+        grid-template-columns: 1fr;
+    }
+
+    .strategy-chart-container {
+        height: 300px;
+    }
+
+    .review-summary-cards {
+        grid-template-columns: repeat(3, 1fr);
+    }
+
+    .review-controls-left {
+        gap: 0.5rem;
+    }
+}
+
+@media (max-width: 480px) {
+    .review-summary-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+
+    .review-card-value {
+        font-size: 1.1rem;
+    }
+}

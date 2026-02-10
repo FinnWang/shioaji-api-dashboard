@@ -54,6 +54,12 @@ class StrategySettings(BaseSettings):
     # 券商持倉同步間隔（秒）
     position_sync_interval: int = 60
 
+    # 事件持久化設定
+    event_storage_enabled: bool = True
+    event_storage_buffer_size: int = 20
+    event_storage_flush_interval: float = 2.0
+    persist_kline_events: bool = False  # 是否持久化 kline_complete 事件
+
     # Redis 設定（繼承自主系統或獨立設定）
     redis_url: str = "redis://localhost:6379/0"
 

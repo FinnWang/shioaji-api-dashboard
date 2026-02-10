@@ -1982,12 +1982,25 @@ function handleStrategyEvent(event) {
     const eventType = event.event_type;
     const symbol = event.symbol;
     const data = event.data || {};
+    const timestampMs = event.timestamp || Date.now();
 
     // 更新策略狀態卡片
     updateStrategyStatusCards(eventType, symbol, data);
 
     // 新增日誌項目
     addStrategyLog(event);
+
+    // 同步到策略圖表
+    if (eventType === 'kline_complete') {
+        updateStrategyKline(data);
+    } else if (eventType === 'entry' || eventType === 'exit' || eventType === 'stop_loss') {
+        addStrategyMarker(eventType, data, timestampMs);
+    }
+
+    // 更新損益曲線
+    if (eventType === 'exit' && data.pnl !== undefined) {
+        updateStrategyPnlCurve(data.pnl, timestampMs);
+    }
 }
 
 /**
@@ -2138,15 +2151,25 @@ function clearStrategyLog() {
     }
 }
 
-// 擴展 switchTab 以支援策略監控分頁
+// 擴展 switchTab 以支援策略監控 + 復盤分頁
 const originalSwitchTabForStrategy = switchTab;
 switchTab = function(tab) {
     originalSwitchTabForStrategy(tab);
 
-    // 切到策略監控分頁時，確保 WebSocket 已連線
+    // 切到策略監控分頁時，初始化圖表並確保 WebSocket 已連線
     if (tab === 'strategy') {
         if (!quoteWebSocket || quoteWebSocket.readyState !== WebSocket.OPEN) {
             initQuoteWebSocket();
         }
+        // 延遲初始化圖表（確保 DOM 已顯示）
+        setTimeout(() => {
+            initStrategyChart();
+            initStrategyPnlChart();
+        }, 100);
+    }
+
+    // 切到復盤分頁時，初始化日期和圖表
+    if (tab === 'review') {
+        initReviewTab();
     }
 };

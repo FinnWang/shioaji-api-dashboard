@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Float, Numeric
+from sqlalchemy import Column, Integer, BigInteger, String, DateTime, Float, Numeric, JSON
 import enum
 
 from database import Base
@@ -129,5 +129,83 @@ class QuoteHistory(Base):
             "buy_volume": self.buy_volume,
             "sell_volume": self.sell_volume,
             "quote_time": self.quote_time.isoformat() if self.quote_time else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class StrategyEvent(Base):
+    """
+    策略事件記錄表
+
+    儲存策略引擎產生的所有事件（訊號、進場、出場、停損等），
+    供復盤分析使用。
+    """
+    __tablename__ = "strategy_event"
+
+    id = Column(BigInteger, primary_key=True, index=True)
+    symbol = Column(String(32), nullable=False, index=True)
+    event_type = Column(String(20), nullable=False)  # kline_complete, signal, entry, exit, stop_loss
+    event_data = Column(JSON, nullable=False)  # PostgreSQL JSONB
+    event_time = Column(DateTime(timezone=True), nullable=False, index=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        return {
+            "id": self.id,
+            "symbol": self.symbol,
+            "event_type": self.event_type,
+            "event_data": self.event_data,
+            "event_time": self.event_time.isoformat() if self.event_time else None,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class StrategyTrade(Base):
+    """
+    策略交易回合表
+
+    配對 entry → exit，記錄完整交易鏈路，
+    供績效計算和復盤分析使用。
+    """
+    __tablename__ = "strategy_trade"
+
+    id = Column(BigInteger, primary_key=True, index=True)
+    symbol = Column(String(32), nullable=False, index=True)
+    direction = Column(String(10), nullable=False)  # long, short
+    entry_price = Column(Numeric(12, 2), nullable=False)
+    entry_time = Column(DateTime(timezone=True), nullable=False)
+    entry_event_id = Column(BigInteger, nullable=True)
+    exit_price = Column(Numeric(12, 2), nullable=True)
+    exit_time = Column(DateTime(timezone=True), nullable=True)
+    exit_event_id = Column(BigInteger, nullable=True)
+    exit_reason = Column(String(20), nullable=True)  # signal, fixed, trailing, daily
+    pnl = Column(Numeric(12, 2), nullable=True)
+    quantity = Column(Integer, nullable=False, default=1)
+    status = Column(String(10), nullable=False, default="open")  # open, closed
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+    def to_dict(self):
+        def decimal_to_float(val):
+            if val is None:
+                return None
+            return float(val) if isinstance(val, Decimal) else val
+
+        duration_seconds = None
+        if self.entry_time and self.exit_time:
+            duration_seconds = (self.exit_time - self.entry_time).total_seconds()
+
+        return {
+            "id": self.id,
+            "symbol": self.symbol,
+            "direction": self.direction,
+            "entry_price": decimal_to_float(self.entry_price),
+            "entry_time": self.entry_time.isoformat() if self.entry_time else None,
+            "exit_price": decimal_to_float(self.exit_price),
+            "exit_time": self.exit_time.isoformat() if self.exit_time else None,
+            "exit_reason": self.exit_reason,
+            "pnl": decimal_to_float(self.pnl),
+            "quantity": self.quantity,
+            "status": self.status,
+            "duration_seconds": duration_seconds,
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }

@@ -34,6 +34,7 @@
             <button class="tab" onclick="switchTab('webhook')">🔗 TradingView 設定</button>
             <button class="tab" onclick="switchTab('chart')">📈 即時圖表</button>
             <button class="tab" onclick="switchTab('strategy')">🤖 策略監控</button>
+            <button class="tab" onclick="switchTab('review')">📊 策略復盤</button>
         </div>
         
         <!-- Trading Tab (NEW) -->
@@ -841,11 +842,12 @@ if (strategy.position_size < 0)
             <div class="chart-info">
                 <h3>📊 即時分時圖說明</h3>
                 <ul>
-                    <li>✅ 使用本地 WebSocket 連接，顯示即時 Tick 數據</li>
-                    <li>✅ 自動訂閱 Shioaji 即時報價</li>
-                    <li>✅ 支援自動重連機制</li>
+                    <li>✅ 開啟時自動載入當日完整分時走勢（分鐘 K 線）</li>
+                    <li>✅ 搭配 WebSocket 即時更新，新 tick 自動聚合到分鐘資料</li>
+                    <li>✅ 切換商品時自動重載該商品歷史資料</li>
+                    <li>✅ 支援 VWAP、支撐壓力線疊加顯示</li>
                     <li>⚠️ 需要 Trading Worker 正在運行</li>
-                    <li>⚠️ 非交易時段可能無數據</li>
+                    <li>⚠️ 非交易時段可能無即時數據，但仍可查看歷史走勢</li>
                 </ul>
             </div>
         </div>
@@ -882,14 +884,109 @@ if (strategy.position_size < 0)
                 </div>
             </div>
 
-            <!-- 事件日誌 -->
-            <div class="strategy-log-section">
-                <div class="strategy-log-header">
-                    <h3>策略事件日誌</h3>
-                    <button class="btn-small" onclick="clearStrategyLog()">清除日誌</button>
+            <!-- 即時 K 線圖表 -->
+            <div class="strategy-chart-section">
+                <div class="strategy-chart-header">
+                    <h3>即時 K 線圖表</h3>
                 </div>
-                <div class="strategy-log-container" id="strategyLogContainer">
-                    <div class="strategy-log-empty">等待策略事件...</div>
+                <div id="strategyChartContainer" class="strategy-chart-container"></div>
+            </div>
+
+            <!-- 損益曲線 + 事件日誌 -->
+            <div class="strategy-bottom-row">
+                <div class="strategy-pnl-section">
+                    <h3>即時損益曲線</h3>
+                    <div id="strategyPnlContainer" class="strategy-pnl-container"></div>
+                </div>
+                <div class="strategy-log-section">
+                    <div class="strategy-log-header">
+                        <h3>策略事件日誌</h3>
+                        <button class="btn-small" onclick="clearStrategyLog()">清除日誌</button>
+                    </div>
+                    <div class="strategy-log-container" id="strategyLogContainer">
+                        <div class="strategy-log-empty">等待策略事件...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Review Tab -->
+        <div id="review-tab" class="tab-content">
+            <!-- 日期選擇器 -->
+            <div class="review-controls">
+                <div class="review-controls-left">
+                    <label>開始日期</label>
+                    <input type="date" id="reviewStartDate">
+                    <label>結束日期</label>
+                    <input type="date" id="reviewEndDate">
+                    <button class="btn-primary" onclick="loadReviewData()">查詢</button>
+                    <button class="btn-small" onclick="setReviewToday()">今日</button>
+                    <button class="btn-small" onclick="setReviewWeek()">本週</button>
+                    <button class="btn-small" onclick="setReviewMonth()">本月</button>
+                </div>
+            </div>
+
+            <!-- 績效摘要卡片 -->
+            <div class="review-summary-cards" id="reviewSummaryCards">
+                <div class="review-card">
+                    <div class="review-card-label">總交易次數</div>
+                    <div class="review-card-value" id="reviewTotalTrades">--</div>
+                </div>
+                <div class="review-card">
+                    <div class="review-card-label">勝率</div>
+                    <div class="review-card-value" id="reviewWinRate">--</div>
+                </div>
+                <div class="review-card">
+                    <div class="review-card-label">總損益</div>
+                    <div class="review-card-value" id="reviewTotalPnl">--</div>
+                </div>
+                <div class="review-card">
+                    <div class="review-card-label">最大回撤</div>
+                    <div class="review-card-value" id="reviewMaxDrawdown">--</div>
+                </div>
+                <div class="review-card">
+                    <div class="review-card-label">獲利因子</div>
+                    <div class="review-card-value" id="reviewProfitFactor">--</div>
+                </div>
+                <div class="review-card">
+                    <div class="review-card-label">夏普比率</div>
+                    <div class="review-card-value" id="reviewSharpeRatio">--</div>
+                </div>
+            </div>
+
+            <!-- 資金曲線 -->
+            <div class="review-chart-section">
+                <h3>資金曲線</h3>
+                <div id="reviewEquityContainer" class="review-chart-container"></div>
+            </div>
+
+            <!-- 每日損益柱狀圖 -->
+            <div class="review-chart-section">
+                <h3>每日損益</h3>
+                <div id="reviewDailyPnlContainer" class="review-chart-container-small"></div>
+            </div>
+
+            <!-- 交易列表 -->
+            <div class="review-trades-section">
+                <h3>交易記錄</h3>
+                <div class="review-trades-table-wrapper">
+                    <table class="review-trades-table" id="reviewTradeTable">
+                        <thead>
+                            <tr>
+                                <th>進場時間</th>
+                                <th>出場時間</th>
+                                <th>方向</th>
+                                <th>進場價</th>
+                                <th>出場價</th>
+                                <th>損益</th>
+                                <th>持倉時長</th>
+                                <th>出場原因</th>
+                            </tr>
+                        </thead>
+                        <tbody id="reviewTradeTableBody">
+                            <tr><td colspan="8" class="review-empty">請選擇日期範圍後點擊「查詢」</td></tr>
+                        </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -900,7 +997,9 @@ if (strategy.position_size < 0)
 
     <!-- Cache bust: bump version when files change -->
     <script src="/static/js/dateUtils.js?v=1"></script>
-    <script src="/static/js/realtime-chart-local.js?v=1"></script>
-    <script src="/static/js/dashboard.js?v=13"></script>
+    <script src="/static/js/realtime-chart-local.js?v=3"></script>
+    <script src="/static/js/strategy-chart.js?v=1"></script>
+    <script src="/static/js/strategy-review.js?v=1"></script>
+    <script src="/static/js/dashboard.js?v=14"></script>
 </body>
 </html>

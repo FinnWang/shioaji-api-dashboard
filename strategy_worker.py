@@ -23,6 +23,7 @@ from typing import Optional
 import redis
 
 from strategy_config import StrategySettings
+from strategy_event_storage import StrategyEventStorage
 from kline_builder import KLineBuilder, KLine
 from strategy_engine import StrategyEngine, SignalAction, PositionDirection, calculate_sma
 from risk_manager import RiskManager, StopReason
@@ -133,6 +134,13 @@ class StrategyWorker:
             sync_interval=self.settings.position_sync_interval,
         )
 
+        # 事件持久化
+        self._event_storage = StrategyEventStorage(
+            buffer_size=self.settings.event_storage_buffer_size,
+            flush_interval=self.settings.event_storage_flush_interval,
+            enabled=self.settings.event_storage_enabled,
+        )
+
         # 反轉等待狀態：平倉後需要反向開倉
         self._pending_reverse: Optional[str] = None  # "long" 或 "short"
 
@@ -194,6 +202,9 @@ class StrategyWorker:
 
         # 持久化最終狀態
         self._persist_state()
+
+        # 停止事件持久化（刷新剩餘緩衝區）
+        self._event_storage.stop()
 
         # 停止 Pub/Sub 監聽
         if self._pubsub_thread and self._pubsub_thread.is_alive():
@@ -477,7 +488,7 @@ class StrategyWorker:
 
     def _publish_event(self, event_type: str, data: dict) -> None:
         """
-        發布策略事件到 Redis Pub/Sub
+        發布策略事件到 Redis Pub/Sub，並寫入持久化
 
         Args:
             event_type: 事件類型 (kline_complete, signal, entry, exit, stop_loss)
@@ -493,6 +504,11 @@ class StrategyWorker:
             }
             self._redis.publish(channel, json.dumps(event))
             logger.debug(f"策略事件已發布: {event_type}")
+
+            # 寫入持久化（kline_complete 依設定決定是否儲存）
+            if event_type != "kline_complete" or self.settings.persist_kline_events:
+                self._event_storage.add_event(event)
+
         except Exception as e:
             logger.error(f"發布策略事件失敗: {e}")
 
