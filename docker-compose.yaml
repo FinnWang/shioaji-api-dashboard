@@ -135,21 +135,29 @@ services:
     environment:
       - STRATEGY_REDIS_URL=redis://redis:6379/0
       - STRATEGY_SIMULATION=true
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/shioaji
     volumes:
       # Mount source code for live updates (no rebuild needed)
       - ./strategy_worker.py:/app/strategy_worker.py:ro
       - ./strategy_config.py:/app/strategy_config.py:ro
+      - ./strategy_event_storage.py:/app/strategy_event_storage.py:ro
       - ./kline_builder.py:/app/kline_builder.py:ro
       - ./strategy_engine.py:/app/strategy_engine.py:ro
       - ./risk_manager.py:/app/risk_manager.py:ro
       - ./position_manager.py:/app/position_manager.py:ro
       - ./trading_queue.py:/app/trading_queue.py:ro
       - ./config.py:/app/config.py:ro
+      - ./database.py:/app/database.py:ro
+      - ./models.py:/app/models.py:ro
     depends_on:
+      db:
+        condition: service_healthy
       redis:
         condition: service_healthy
       trading-worker:
         condition: service_started
+      db-migrate:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   redis:
