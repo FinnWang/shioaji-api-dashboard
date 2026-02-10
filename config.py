@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     quote_storage_flush_interval: float = 5.0  # 定時刷新間隔（秒）
 
     # 支撐壓力分析設定
-    analysis_proxy_url: Optional[str] = None  # shioaji-proxy API URL
+    analysis_proxy_url: Optional[str] = "https://tripple-f.zeabur.app"  # shioaji-proxy API URL
     analysis_timeout: float = 10.0  # 請求超時時間（秒）
 
     @property

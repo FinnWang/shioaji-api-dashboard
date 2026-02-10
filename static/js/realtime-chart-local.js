@@ -1,6 +1,6 @@
 /**
  * 本地即時分時圖表模組
- * 使用本地 WebSocket 連接，顯示即時 Tick 數據
+ * 頁面載入時先取得當日歷史分鐘資料，再搭配 WebSocket 即時更新
  */
 
 // ============================================================================
@@ -31,9 +31,6 @@ const LOCAL_CHART_CONFIG = {
 
     // 支撐壓力更新間隔 (毫秒)
     levelsUpdateInterval: 60000,
-
-    // 數據保留數量（最多顯示多少個 tick）
-    maxDataPoints: 500,
 };
 
 // ============================================================================
@@ -44,7 +41,7 @@ let localChart = null;
 let localLineSeries = null;
 let localVolumeSeries = null;
 let localWs = null;
-let localChartData = [];
+let localChartData = [];      // 分鐘 K 線資料 [{time, open, high, low, close, volume}]
 let localCurrentSymbol = 'TMFR1';
 let localReconnectTimer = null;
 let localReconnectAttempts = 0;
@@ -58,6 +55,104 @@ let localLevelsUpdateTimer = null;
 // VWAP 狀態
 let localVwapData = { totalValue: 0, totalVolume: 0, vwap: 0 };
 let localVwapLine = null;
+
+// 歷史資料載入狀態
+let localHistoryLoaded = false;
+
+// ============================================================================
+// 歷史資料載入
+// ============================================================================
+
+/**
+ * 載入當日歷史分鐘資料
+ */
+async function loadIntradayHistory(symbol) {
+    try {
+        updateLocalChartStatus('loading', '載入歷史資料...');
+        console.log(`[History] 載入 ${symbol} 當日分時資料...`);
+
+        const response = await fetch(`/quotes/intraday/${symbol}`);
+        if (!response.ok) {
+            console.warn('[History] API 回應錯誤:', response.status);
+            updateLocalChartStatus('connected', `${symbol} 即時 (無歷史資料)`);
+            return;
+        }
+
+        const result = await response.json();
+        if (!result.success || !result.data || result.data.length === 0) {
+            console.log('[History] 無當日歷史資料');
+            updateLocalChartStatus('connected', `${symbol} 即時 (無歷史資料)`);
+            return;
+        }
+
+        // 重置 VWAP
+        localVwapData = { totalValue: 0, totalVolume: 0, vwap: 0 };
+
+        // 將 API 回傳的分鐘資料轉換為圖表資料格式
+        localChartData = [];
+        for (const bar of result.data) {
+            if (!bar.time || bar.close === null) continue;
+
+            const timestamp = Math.floor(new Date(bar.time).getTime() / 1000);
+
+            localChartData.push({
+                time: timestamp,
+                open: bar.open,
+                high: bar.high,
+                low: bar.low,
+                close: bar.close,
+                volume: bar.volume || 0,
+            });
+
+            // 累計 VWAP（使用 close * volume 近似）
+            if (bar.close > 0 && bar.volume > 0) {
+                localVwapData.totalValue += bar.close * bar.volume;
+                localVwapData.totalVolume += bar.volume;
+            }
+        }
+
+        // 計算 VWAP
+        if (localVwapData.totalVolume > 0) {
+            localVwapData.vwap = localVwapData.totalValue / localVwapData.totalVolume;
+            updateLocalVwapLine(localVwapData.vwap);
+        }
+
+        // 設定圖表資料
+        if (localLineSeries && localChartData.length > 0) {
+            localLineSeries.setData(localChartData.map(d => ({
+                time: d.time,
+                value: d.close
+            })));
+
+            localVolumeSeries.setData(localChartData.map(d => ({
+                time: d.time,
+                value: d.volume,
+                color: LOCAL_CHART_CONFIG.colors.upColor + '80'
+            })));
+
+            // 自動調整可視範圍到完整數據
+            localChart.timeScale().fitContent();
+        }
+
+        // 更新漲跌顯示（使用最後一筆資料）
+        const lastBar = result.data[result.data.length - 1];
+        if (lastBar) {
+            updateLocalPriceDisplay({
+                close: lastBar.close,
+                change_price: lastBar.change_price,
+                change_rate: lastBar.change_rate,
+            });
+        }
+
+        localHistoryLoaded = true;
+        console.log(`[History] 載入完成，共 ${localChartData.length} 筆分鐘資料`);
+        updateLocalChartStatus('connected', `${symbol} 即時`);
+
+    } catch (error) {
+        console.error('[History] 載入失敗:', error);
+        updateLocalChartStatus('connected', `${symbol} 即時 (歷史載入失敗)`);
+    }
+}
 
 // ============================================================================
 // WebSocket 連線
@@ -114,7 +209,7 @@ function connectLocalWebSocket() {
                 localReconnectAttempts++;
                 const delay = Math.min(1000 * Math.pow(2, localReconnectAttempts), 30000);
                 console.log(`[WS] ${delay}ms 後重連 (第 ${localReconnectAttempts} 次)`);
-                
+
                 localReconnectTimer = setTimeout(() => {
                     connectLocalWebSocket();
                 }, delay);
@@ -194,7 +289,7 @@ let localHeartbeatTimer = null;
 
 function startLocalHeartbeat() {
     stopLocalHeartbeat();
-    
+
     localHeartbeatTimer = setInterval(() => {
         if (localWs && localWs.readyState === WebSocket.OPEN) {
             localWs.send(JSON.stringify({ type: 'ping' }));
@@ -218,9 +313,8 @@ function stopLocalHeartbeat() {
  */
 async function loadLocalAnalysisLevels() {
     try {
-        // 根據商品代碼決定查詢的標的
-        const symbol = localCurrentSymbol.startsWith('TMF') ? 'TXF' :
-                       localCurrentSymbol.startsWith('MXF') ? 'MXF' : 'TXF';
+        // 所有台指相關商品（TMF/MXF/TXF）都使用 TXF 的支撐壓力數據
+        const symbol = 'TXF';
 
         const response = await fetch(`/analysis/levels?symbol=${symbol}`);
         if (!response.ok) {
@@ -244,7 +338,7 @@ async function loadLocalAnalysisLevels() {
 }
 
 /**
- * 繪製支撐壓力線
+ * 繪製支撐壓力線（完整版：Pivot Points + OI + Strength Levels）
  */
 function drawLocalSupportResistanceLines(data) {
     clearLocalPriceLines();
@@ -255,66 +349,116 @@ function drawLocalSupportResistanceLines(data) {
 
     const pivot = data.pivot_points || {};
     const oi = data.oi_levels || {};
+    const resistances = data.resistances || [];
+    const supports = data.supports || [];
+    const apiVwap = data.vwap || 0;
 
-    // R1 壓力線 (紫色虛線)
+    // 已繪製的價位（避免重複畫線）
+    const drawnPrices = new Set();
+
+    function addPriceLine(price, color, lineWidth, lineStyle, title) {
+        if (price <= 0 || drawnPrices.has(price)) return;
+        drawnPrices.add(price);
+        localPriceLines.push(localLineSeries.createPriceLine({
+            price, color, lineWidth, lineStyle,
+            axisLabelVisible: true,
+            title,
+        }));
+    }
+
+    // === Pivot Points ===
+    // PP 軸心 (白色點線)
+    if (pivot.pp > 0) {
+        addPriceLine(pivot.pp, 'rgba(255, 255, 255, 0.4)', 1,
+            LightweightCharts.LineStyle.Dotted, 'PP');
+    }
+
+    // R1 壓力 (紫色虛線)
     if (pivot.r1 > 0) {
-        localPriceLines.push(localLineSeries.createPriceLine({
-            price: pivot.r1,
-            color: LOCAL_CHART_CONFIG.levelColors.resistance,
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: 'R1',
-        }));
+        addPriceLine(pivot.r1, LOCAL_CHART_CONFIG.levelColors.resistance, 1,
+            LightweightCharts.LineStyle.Dashed, 'R1');
     }
 
-    // S1 支撐線 (橘色虛線)
+    // R2 壓力 (淡紫虛線)
+    if (pivot.r2 > 0) {
+        addPriceLine(pivot.r2, 'rgba(167, 139, 250, 0.4)', 1,
+            LightweightCharts.LineStyle.Dotted, 'R2');
+    }
+
+    // R3 壓力 (更淡紫虛線)
+    if (pivot.r3 > 0) {
+        addPriceLine(pivot.r3, 'rgba(167, 139, 250, 0.25)', 1,
+            LightweightCharts.LineStyle.Dotted, 'R3');
+    }
+
+    // S1 支撐 (橘色虛線)
     if (pivot.s1 > 0) {
-        localPriceLines.push(localLineSeries.createPriceLine({
-            price: pivot.s1,
-            color: LOCAL_CHART_CONFIG.levelColors.support,
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Dashed,
-            axisLabelVisible: true,
-            title: 'S1',
-        }));
+        addPriceLine(pivot.s1, LOCAL_CHART_CONFIG.levelColors.support, 1,
+            LightweightCharts.LineStyle.Dashed, 'S1');
     }
 
-    // Max Pain (白色實線，粗)
+    // S2 支撐 (淡橘虛線)
+    if (pivot.s2 > 0) {
+        addPriceLine(pivot.s2, 'rgba(251, 146, 60, 0.4)', 1,
+            LightweightCharts.LineStyle.Dotted, 'S2');
+    }
+
+    // S3 支撐 (更淡橘虛線)
+    if (pivot.s3 > 0) {
+        addPriceLine(pivot.s3, 'rgba(251, 146, 60, 0.25)', 1,
+            LightweightCharts.LineStyle.Dotted, 'S3');
+    }
+
+    // === OI 支撐壓力 ===
+    // Max Pain (黃色實線，粗)
     if (oi.max_pain > 0) {
-        localPriceLines.push(localLineSeries.createPriceLine({
-            price: oi.max_pain,
-            color: LOCAL_CHART_CONFIG.levelColors.maxPain,
-            lineWidth: 2,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'MP',
-        }));
+        addPriceLine(oi.max_pain, 'rgba(250, 204, 21, 0.8)', 2,
+            LightweightCharts.LineStyle.Solid, 'MP');
     }
 
-    // OI 壓力 (紫色實線)
-    if (oi.resistance > 0 && oi.resistance !== oi.max_pain) {
-        localPriceLines.push(localLineSeries.createPriceLine({
-            price: oi.resistance,
-            color: LOCAL_CHART_CONFIG.levelColors.resistance,
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'OI壓',
-        }));
+    // OI 壓力 (紅紫實線)
+    if (oi.resistance > 0) {
+        addPriceLine(oi.resistance, 'rgba(239, 68, 68, 0.6)', 1,
+            LightweightCharts.LineStyle.Solid, 'OI壓');
     }
 
-    // OI 支撐 (橘色實線)
-    if (oi.support > 0 && oi.support !== oi.max_pain) {
-        localPriceLines.push(localLineSeries.createPriceLine({
-            price: oi.support,
-            color: LOCAL_CHART_CONFIG.levelColors.support,
-            lineWidth: 1,
-            lineStyle: LightweightCharts.LineStyle.Solid,
-            axisLabelVisible: true,
-            title: 'OI撐',
-        }));
+    // OI 支撐 (綠色實線)
+    if (oi.support > 0) {
+        addPriceLine(oi.support, 'rgba(34, 197, 94, 0.6)', 1,
+            LightweightCharts.LineStyle.Solid, 'OI撐');
     }
+
+    // === API VWAP（若有值且本地 VWAP 尚未計算）===
+    if (apiVwap > 0 && localVwapData.totalVolume === 0) {
+        updateLocalVwapLine(apiVwap);
+    }
+
+    // === Strength Levels（綜合強度支撐壓力）===
+    // 壓力線（按 strength 由高到低，取前 3 條避免太密）
+    const topResistances = resistances
+        .filter(r => r.price > 0)
+        .sort((a, b) => b.strength - a.strength)
+        .slice(0, 3);
+
+    for (const r of topResistances) {
+        const alpha = Math.min(0.3 + r.strength * 0.15, 0.9);
+        addPriceLine(r.price, `rgba(239, 68, 68, ${alpha})`, 1,
+            LightweightCharts.LineStyle.Dashed, r.label || '壓');
+    }
+
+    // 支撐線（按 strength 由高到低，取前 3 條）
+    const topSupports = supports
+        .filter(s => s.price > 0)
+        .sort((a, b) => b.strength - a.strength)
+        .slice(0, 3);
+
+    for (const s of topSupports) {
+        const alpha = Math.min(0.3 + s.strength * 0.15, 0.9);
+        addPriceLine(s.price, `rgba(34, 197, 94, ${alpha})`, 1,
+            LightweightCharts.LineStyle.Dashed, s.label || '撐');
+    }
+
+    console.log(`[Levels] 繪製完成: ${drawnPrices.size} 條線`);
 }
 
 /**
@@ -447,7 +591,7 @@ function handleLocalWebSocketMessage(message) {
 }
 
 /**
- * 處理報價更新
+ * 處理報價更新 - 將 tick 聚合到分鐘 K 線
  */
 function handleLocalQuoteUpdate(quoteData) {
     if (!localLineSeries || !localVolumeSeries) {
@@ -455,13 +599,16 @@ function handleLocalQuoteUpdate(quoteData) {
     }
 
     // 解析報價數據
-    const timestamp = quoteData.timestamp ? Math.floor(quoteData.timestamp / 1000) : Math.floor(Date.now() / 1000);
+    const rawTimestamp = quoteData.timestamp ? Math.floor(quoteData.timestamp / 1000) : Math.floor(Date.now() / 1000);
     const close = parseFloat(quoteData.close) || 0;
     const volume = parseInt(quoteData.volume) || 0;
 
     if (close === 0) {
         return; // 跳過無效數據
     }
+
+    // 將 timestamp 對齊到分鐘（取整到分鐘起始）
+    const minuteTimestamp = rawTimestamp - (rawTimestamp % 60);
 
     // 計算 VWAP
     if (close > 0 && volume > 0) {
@@ -471,30 +618,41 @@ function handleLocalQuoteUpdate(quoteData) {
         updateLocalVwapLine(localVwapData.vwap);
     }
 
-    // 添加到數據陣列
-    localChartData.push({
-        time: timestamp,
-        value: close,
-        volume: volume
-    });
+    // 檢查是否屬於已存在的分鐘
+    const lastBar = localChartData.length > 0 ? localChartData[localChartData.length - 1] : null;
 
-    // 限制數據點數量
-    if (localChartData.length > LOCAL_CHART_CONFIG.maxDataPoints) {
-        localChartData.shift();
+    if (lastBar && lastBar.time === minuteTimestamp) {
+        // 同一分鐘：更新 high/low/close/volume
+        lastBar.high = Math.max(lastBar.high, close);
+        lastBar.low = Math.min(lastBar.low, close);
+        lastBar.close = close;
+        lastBar.volume += volume;
+    } else {
+        // 新分鐘：新增一筆分鐘資料
+        localChartData.push({
+            time: minuteTimestamp,
+            open: close,
+            high: close,
+            low: close,
+            close: close,
+            volume: volume,
+        });
     }
 
-    // 更新圖表
+    // 更新圖表（使用 update 提升效能）
     try {
-        localLineSeries.setData(localChartData.map(d => ({
-            time: d.time,
-            value: d.value
-        })));
+        const currentBar = localChartData[localChartData.length - 1];
 
-        localVolumeSeries.setData(localChartData.map(d => ({
-            time: d.time,
-            value: d.volume,
-            color: LOCAL_CHART_CONFIG.colors.upColor + '80'
-        })));
+        localLineSeries.update({
+            time: currentBar.time,
+            value: currentBar.close,
+        });
+
+        localVolumeSeries.update({
+            time: currentBar.time,
+            value: currentBar.volume,
+            color: LOCAL_CHART_CONFIG.colors.upColor + '80',
+        });
 
         // 更新價格顯示
         updateLocalPriceDisplay(quoteData);
@@ -543,7 +701,7 @@ function updateLocalPriceDisplay(quoteData) {
 /**
  * 初始化本地即時圖表
  */
-function initLocalRealtimeChart() {
+async function initLocalRealtimeChart() {
     const container = document.getElementById('chartContainer');
     if (!container) {
         console.error('找不到圖表容器 #chartContainer');
@@ -583,13 +741,13 @@ function initLocalRealtimeChart() {
             timeScale: {
                 borderColor: LOCAL_CHART_CONFIG.colors.grid,
                 timeVisible: true,
-                secondsVisible: true,
+                secondsVisible: false,
             },
             localization: {
                 locale: 'zh-TW',
                 timeFormatter: (time) => {
                     const date = new Date(time * 1000);
-                    return date.toLocaleTimeString('zh-TW');
+                    return date.toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit' });
                 },
             },
         });
@@ -624,15 +782,18 @@ function initLocalRealtimeChart() {
 
         console.log('本地即時圖表初始化完成');
 
-        // 連接 WebSocket
+        // 重置 VWAP
+        resetLocalVwap();
+
+        // 先載入當日歷史資料
+        await loadIntradayHistory(localCurrentSymbol);
+
+        // 歷史載入完成後再連接 WebSocket
         connectLocalWebSocket();
 
         // 載入支撐壓力數據並啟動定時更新
         loadLocalAnalysisLevels();
         startLocalLevelsAutoUpdate();
-
-        // 重置 VWAP
-        resetLocalVwap();
 
     } catch (error) {
         console.error('圖表初始化失敗:', error);
@@ -665,6 +826,7 @@ function destroyLocalRealtimeChart() {
     }
 
     localChartData = [];
+    localHistoryLoaded = false;
 }
 
 // ============================================================================
@@ -674,7 +836,7 @@ function destroyLocalRealtimeChart() {
 /**
  * 切換商品
  */
-function changeLocalChartSymbol(symbol) {
+async function changeLocalChartSymbol(symbol) {
     if (symbol === localCurrentSymbol) {
         return;
     }
@@ -687,6 +849,7 @@ function changeLocalChartSymbol(symbol) {
 
     // 清空數據
     localChartData = [];
+    localHistoryLoaded = false;
     if (localLineSeries) {
         localLineSeries.setData([]);
     }
@@ -700,6 +863,9 @@ function changeLocalChartSymbol(symbol) {
     // 重新載入支撐壓力數據
     loadLocalAnalysisLevels();
 
+    // 載入新商品的歷史資料
+    await loadIntradayHistory(symbol);
+
     // 訂閱新商品
     subscribeLocalSymbol(symbol);
 
@@ -712,9 +878,21 @@ function changeLocalChartSymbol(symbol) {
 function refreshLocalChart() {
     disconnectLocalWebSocket();
     localReconnectAttempts = 0;
-    setTimeout(() => {
+
+    // 重新載入歷史資料並重連
+    localChartData = [];
+    localHistoryLoaded = false;
+    if (localLineSeries) {
+        localLineSeries.setData([]);
+    }
+    if (localVolumeSeries) {
+        localVolumeSeries.setData([]);
+    }
+    resetLocalVwap();
+
+    loadIntradayHistory(localCurrentSymbol).then(() => {
         connectLocalWebSocket();
-    }, 500);
+    });
 }
 
 /**
