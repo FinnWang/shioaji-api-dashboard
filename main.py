@@ -1224,8 +1224,8 @@ async def get_intraday_data(
             SELECT
                 date_trunc('minute', quote_time AT TIME ZONE 'Asia/Taipei') AS minute_time,
                 (array_agg(close_price ORDER BY quote_time ASC))[1] AS open,
-                MAX(CASE WHEN high_price IS NOT NULL THEN high_price ELSE close_price END) AS high,
-                MIN(CASE WHEN low_price IS NOT NULL THEN low_price ELSE close_price END) AS low,
+                MAX(close_price) AS high,
+                MIN(close_price) AS low,
                 (array_agg(close_price ORDER BY quote_time DESC))[1] AS close,
                 SUM(COALESCE(volume, 0)) AS volume,
                 (array_agg(change_price ORDER BY quote_time DESC))[1] AS change_price,

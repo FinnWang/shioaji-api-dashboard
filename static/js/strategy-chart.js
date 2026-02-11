@@ -127,13 +127,15 @@ async function loadStrategyIntradayData() {
 
         if (!result.success || !result.data || result.data.length === 0) return;
 
-        strategyKlineData = result.data.map(d => ({
-            time: Math.floor(new Date(d.time).getTime() / 1000),
-            open: d.open,
-            high: d.high,
-            low: d.low,
-            close: d.close,
-        })).filter(d => d.open && d.high && d.low && d.close);
+        strategyKlineData = result.data
+            .filter(d => d.time && d.close != null)
+            .map(d => ({
+                time: Math.floor(new Date(d.time).getTime() / 1000),
+                open: d.open ?? d.close,
+                high: d.high ?? d.close,
+                low: d.low ?? d.close,
+                close: d.close,
+            }));
 
         if (strategyCandleSeries && strategyKlineData.length > 0) {
             strategyCandleSeries.setData(strategyKlineData);

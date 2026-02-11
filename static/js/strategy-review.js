@@ -18,9 +18,17 @@ function initReviewTab() {
         // 設定預設日期為今日
         setReviewToday();
         reviewInitialized = true;
+
+        // 延遲初始化圖表並自動載入今日資料
+        setTimeout(() => {
+            initReviewEquityChart();
+            initReviewDailyPnlChart();
+            loadReviewData();
+        }, 150);
+        return;
     }
 
-    // 延遲初始化圖表
+    // 已初始化過，僅確保圖表存在
     setTimeout(() => {
         initReviewEquityChart();
         initReviewDailyPnlChart();
