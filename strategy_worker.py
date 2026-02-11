@@ -29,6 +29,8 @@ from strategy_engine import StrategyEngine, SignalAction, PositionDirection, cal
 from risk_manager import RiskManager, StopReason
 from position_manager import PositionManager
 from trading_queue import TradingQueueClient
+from database import SessionLocal
+from models import OrderHistory
 
 # 日誌設定
 logging.basicConfig(
@@ -395,6 +397,10 @@ class StrategyWorker:
                 self._risk_manager.on_entry(price, direction)
                 logger.info(f"進場成功: {direction} @ {price}")
 
+                # 寫入委託紀錄
+                action_label = "long_entry" if direction == "long" else "short_entry"
+                self._save_order_history(action_label, response.data or {}, price)
+
                 # 發布進場事件
                 self._publish_event("entry", {
                     "direction": direction,
@@ -413,7 +419,7 @@ class StrategyWorker:
         if direction == "flat":
             return
 
-        position_direction = "Long" if direction == "long" else "Short"
+        position_direction = "Buy" if direction == "long" else "Sell"
 
         try:
             logger.info(
@@ -429,10 +435,25 @@ class StrategyWorker:
             )
 
             if response.success:
+                # 檢查假成功（券商無持倉可平）
+                result_data = response.data or {}
+                if result_data.get("order_id") is None and result_data.get("message"):
+                    logger.warning(
+                        f"平倉假成功（券商無持倉）: {result_data.get('message')} - "
+                        f"強制清除本地持倉狀態"
+                    )
+                    self._position_manager.close_position(price)
+                    self._pending_reverse = None
+                    return
+
                 # 更新本地持倉和風控
                 pnl = self._position_manager.close_position(price)
                 self._risk_manager.on_exit(price)
                 logger.info(f"平倉成功: 損益={pnl:.1f} 點")
+
+                # 寫入委託紀錄
+                action_label = "long_exit" if direction == "long" else "short_exit"
+                self._save_order_history(action_label, result_data, price)
 
                 # 發布出場事件
                 self._publish_event("exit", {
@@ -454,6 +475,42 @@ class StrategyWorker:
         except Exception as e:
             logger.error(f"平倉下單異常: {e}", exc_info=True)
             self._pending_reverse = None
+
+    def _save_order_history(self, action: str, result_data: dict, price: float) -> None:
+        """
+        寫入委託紀錄到 OrderHistory
+
+        Args:
+            action: 操作類型 (long_entry, long_exit, short_entry, short_exit)
+            result_data: 交易回應資料
+            price: 成交價格
+        """
+        try:
+            db = SessionLocal()
+            try:
+                order = OrderHistory(
+                    symbol=self.settings.symbol,
+                    code=result_data.get("code"),
+                    action=action,
+                    quantity=self.settings.quantity,
+                    status="submitted",
+                    simulation=1 if self.settings.simulation else 0,
+                    order_id=result_data.get("order_id"),
+                    seqno=result_data.get("seqno"),
+                    ordno=result_data.get("ordno"),
+                    fill_status=result_data.get("status", "Submitted"),
+                    order_result=str(result_data) if result_data else None,
+                )
+                db.add(order)
+                db.commit()
+                logger.info(f"委託紀錄已寫入: {action} @ {price}")
+            except Exception as e:
+                db.rollback()
+                logger.error(f"寫入委託紀錄失敗: {e}")
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"建立 DB 連線失敗: {e}")
 
     def _check_stop_loss(self, current_price: float) -> None:
         """即時停損檢查"""
